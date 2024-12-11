@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>html2canvas</title>
+  <script src="./js/html2canvas.min.js"></script>
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f0f0f0;
+    }
+
+
+    textarea {
+      width: 100%;
+      height: 150px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="svgContainer">
+    <textarea id="svgInput" placeholder="在此输入SVG代码"></textarea>
+    <button id="displayBtn">显示SVG</button>
+    <div id="svg"></div>
+  </div>
+  <button id="convertBtn">导出为 PNG</button>
+  <script>
+    document.getElementById('displayBtn').addEventListener('click', function () {
+      const svgCode = document.getElementById('svgInput').value;
+      const svgDiv = document.getElementById('svg');
+      svgDiv.innerHTML = ''; // 清空之前的SVG内容
+      svgDiv.innerHTML = svgCode; // 插入新的SVG代码
+    });
+
+    document.getElementById('convertBtn').addEventListener('click', function () {
+      const svgElement = document.getElementById('svg');
+      html2canvas(svgElement, { backgroundColor: null }).then(function (canvas) {
+        const img = new Image();
+        img.src = canvas.toDataURL('image/png');
+
+        // 创建一个<a>标签用于下载
+        const link = document.createElement('a');
+        link.href = img.src;
+        link.download = 'image.png'; // 设置下载的文件名
+        document.body.appendChild(link);
+        link.click(); // 触发下载
+        document.body.removeChild(link); // 下载完成后移除<a>标签
+
+        // 将图片展示在页面上
+        document.body.appendChild(img);
+      });
+    });
+  </script>
+
+</body>
+
+</html>
