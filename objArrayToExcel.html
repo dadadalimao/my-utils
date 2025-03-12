@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>数组转Excel生成器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        .container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 5px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 300px;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .error {
+            color: red;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>数组转Excel生成器</h2>
+        <p>请输入JSON格式的对象数组（示例）：</p>
+        <textarea id="input" placeholder='例如：
+[
+    {"姓名": "张三", "年龄": 25, "部门": "技术部"},
+    {"姓名": "李四", "年龄": 30, "部门": "市场部"},
+    {"姓名": "王五", "年龄": 28, "部门": "财务部"}
+]
+对象value仅限数字、字符串或数组，数组元素仅限数字、字符串
+'></textarea>
+        <button onclick="generateExcel()">生成Excel文件</button>
+        <div id="error" class="error"></div>
+    </div>
+
+    <script>
+        function generateExcel() {
+            const input = document.getElementById('input').value;
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = '';
+
+            try {
+                const data = JSON.parse(input);
+
+                if (!Array.isArray(data)) {
+                    throw new Error('输入必须是数组');
+                }
+
+                // 处理数组中的每个对象，将数组类型的值用“、”连接成字符串
+                const processedData = data.map(item => {
+                    return Object.keys(item).reduce((acc, key) => {
+                        if (Array.isArray(item[key])) {
+                            acc[key] = item[key].join('、');
+                        } else {
+                            acc[key] = item[key];
+                        }
+                        return acc;
+                    }, {});
+                });
+
+                // 创建工作表
+                const ws = XLSX.utils.json_to_sheet(processedData, {
+                    header: Object.keys(processedData[0] || {}) // 使用第一个对象的key作为标题
+                });
+
+                // 创建工作簿
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+
+                // 生成Excel文件
+                XLSX.writeFile(wb, 'output.xlsx');
+
+            } catch (e) {
+                errorDiv.textContent = `错误：${e.message}`;
+            }
+        }
+    </script>
+</body>
+
+</html>
