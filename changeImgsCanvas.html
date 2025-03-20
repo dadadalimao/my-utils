@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>批量画布调整</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        .container {
+            margin-bottom: 20px;
+        }
+
+        .thumbnail {
+            max-width: 150px;
+            max-height: 150px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            padding: 3px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 5px;
+            max-width: 300px;
+            margin: 10px 0;
+        }
+
+        .grid button {
+            padding: 10px;
+            cursor: pointer;
+        }
+
+        .selected {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 4px;
+            padding: 20px;
+            text-align: center;
+            background: #f8f8f8;
+            margin: 10px 0;
+            transition: all 0.3s ease;
+        }
+
+        .drop-zone.dragover {
+            background: #e1f5fe;
+            border-color: #2196F3;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h3>1. 批量导入图片</h3>
+        <div class="drop-zone" id="dropZone">
+            <p>拖拽图片到此处或点击选择文件</p>
+            <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
+        </div>
+        <div id="thumbnailContainer"></div>
+        <button id="clearAllBtn" style="margin-top: 10px; display: none;">清空所有图片</button>
+    </div>
+
+    <div class="container">
+        <h3>2. 设置画布参数</h3>
+        <div>
+            <label>新宽度: </label>
+            <input type="number" id="newWidth" value="60">
+            <label>新高度: </label>
+            <input type="number" id="newHeight" value="60">
+            <div style="margin-top: 10px;">
+                <input type="checkbox" id="squareRatio" checked>
+                <label for="squareRatio">自动调整为1:1比例</label>
+            </div>
+            <div style="margin-top: 10px;">
+                <label>文件名前缀: </label>
+                <input type="text" id="filePrefix" value="processed" placeholder="输入文件名前缀">
+            </div>
+        </div>
+
+        <h4>对齐方式:</h4>
+        <div class="grid" id="alignmentGrid">
+            <button data-align="left top">左上</button>
+            <button data-align="center top">上中</button>
+            <button data-align="right top">右上</button>
+            <button data-align="left center">左中</button>
+            <button data-align="center center">居中</button>
+            <button data-align="right center">右中</button>
+            <button data-align="left bottom">左下</button>
+            <button data-align="center bottom">下中</button>
+            <button data-align="right bottom">右下</button>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <button id="processBtn">预览处理效果</button>
+            <button id="previewAndDownloadBtn" style="margin-left: 10px;">预览并下载</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>3. 预览与下载</h3>
+
+        <!-- 新增：背景色调节功能 -->
+        <div style="margin-bottom: 10px;">
+            <label>预览区背景色: </label>
+            <input type="color" id="previewBgColor" value="#ffffff">
+        </div>
+
+        <!-- 新增：预览区域 -->
+        <div id="previewContainer" style="margin-top: 10px; border: 1px solid #ddd; padding: 10px; overflow: auto;">
+            <p>处理后的图片将显示在这里</p>
+        </div>
+
+        <!-- 新增：下载按钮 -->
+        <button id="downloadBtn" style="margin-top: 20px; display: none;">下载所有处理好的图片</button>
+    </div>
+
+    <script>
+        // 全局变量声明
+        let images = []; // 存储所有上传的图片
+        let selectedAlignment = 'center center'; // 默认对齐方式为居中
+        let processedImages = [];
+
+        // 页面加载完成后执行初始化
+        window.addEventListener('load', function () {
+            // 初始化时设置居中按钮为选中状态
+            const centerButton = document.querySelector('button[data-align="center center"]');
+            centerButton.classList.add('selected');
+        });
+
+        // 添加宽高联动功能 - 当宽度变化时
+        document.getElementById('newWidth').addEventListener('input', function () {
+            // 如果勾选了保持1:1比例，则高度自动跟随宽度变化
+            if (document.getElementById('squareRatio').checked) {
+                document.getElementById('newHeight').value = this.value;
+            }
+        });
+
+        // 添加宽高联动功能 - 当高度变化时
+        document.getElementById('newHeight').addEventListener('input', function () {
+            // 如果勾选了保持1:1比例，则宽度自动跟随高度变化
+            if (document.getElementById('squareRatio').checked) {
+                document.getElementById('newWidth').value = this.value;
+            }
+        });
+
+        // 确保初始状态为1:1
+        document.getElementById('newHeight').value = document.getElementById('newWidth').value;
+
+        // 获取拖拽区域元素
+        const dropZone = document.getElementById('dropZone');
+
+        // 阻止默认拖放行为，防止浏览器直接打开文件
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        // 阻止默认事件的函数
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // 添加拖拽视觉反馈 - 当文件进入拖拽区域时高亮显示
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        // 移除拖拽视觉反馈 - 当文件离开或放下时取消高亮
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        // 高亮拖拽区域
+        function highlight(e) {
+            dropZone.classList.add('dragover');
+        }
+
+        // 取消高亮拖拽区域
+        function unhighlight(e) {
+            dropZone.classList.remove('dragover');
+        }
+
+        // 处理拖放文件的事件
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        // 处理拖放文件的函数
+        function handleDrop(e) {
+            const dt = e.dataTransfer; // 获取数据传输对象
+            const files = dt.files; // 获取拖拽的文件列表
+            handleFiles(files); // 处理文件
+        }
+
+        // 修改统一的文件处理函数 - 不再清空之前的图片，而是追加新图片
+        function handleFiles(files) {
+            const container = document.getElementById('thumbnailContainer');
+            // 不再清空容器，而是追加内容
+
+            // 显示清空按钮
+            document.getElementById('clearAllBtn').style.display = 'block';
+
+            // 遍历所有文件
+            for (let file of files) {
+                // 只处理图片类型的文件
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    // 文件读取完成后执行
+                    reader.onload = function (e) {
+                        const img = new Image();
+                        img.src = e.target.result; // 设置图片源为读取的数据
+                        // 图片加载完成后执行
+                        img.onload = () => {
+                            // 创建图片容器，用来包含图片和删除按钮
+                            const imageContainer = document.createElement('div');
+                            imageContainer.style.display = 'inline-block';
+                            imageContainer.style.position = 'relative';
+                            imageContainer.style.margin = '5px';
+
+                            // 记录图片在数组中的索引
+                            const imageIndex = images.length;
+                            imageContainer.dataset.index = imageIndex;
+
+                            // 将图片添加到全局数组
+                            images.push(img);
+
+                            // 创建缩略图
+                            const thumb = new Image();
+                            thumb.className = 'thumbnail';
+                            thumb.src = e.target.result;
+                            imageContainer.appendChild(thumb);
+
+                            // 创建删除按钮
+                            const deleteBtn = document.createElement('button');
+                            deleteBtn.textContent = 'X';
+                            deleteBtn.style.position = 'absolute';
+                            deleteBtn.style.top = '0';
+                            deleteBtn.style.right = '0';
+                            deleteBtn.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+                            deleteBtn.style.color = 'white';
+                            deleteBtn.style.border = 'none';
+                            deleteBtn.style.borderRadius = '50%';
+                            deleteBtn.style.width = '20px';
+                            deleteBtn.style.height = '20px';
+                            deleteBtn.style.cursor = 'pointer';
+                            deleteBtn.style.padding = '0';
+                            deleteBtn.style.lineHeight = '18px';
+                            deleteBtn.style.fontSize = '12px';
+
+                            // 添加删除按钮点击事件
+                            deleteBtn.addEventListener('click', () => removeImage(imageContainer, imageIndex));
+
+                            imageContainer.appendChild(deleteBtn);
+                            container.appendChild(imageContainer);
+                        };
+                    };
+                    // 开始读取文件为DataURL
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+
+        // 删除单个图片的函数
+        function removeImage(container, originalIndex) {
+            // 从DOM中移除图片容器
+            container.remove();
+
+            // 从images数组中移除对应图片（设为null，保持索引不变）
+            images[originalIndex] = null;
+
+            // 检查是否所有图片都已删除
+            const hasImages = images.some(img => img !== null);
+            if (!hasImages) {
+                // 如果没有图片了，隐藏清空按钮
+                document.getElementById('clearAllBtn').style.display = 'none';
+            }
+        }
+
+        // 清空所有图片
+        function clearAllImages() {
+            // 清空缩略图容器
+            document.getElementById('thumbnailContainer').innerHTML = '';
+
+            // 清空图片数组
+            images = [];
+
+            // 隐藏清空按钮
+            document.getElementById('clearAllBtn').style.display = 'none';
+        }
+
+        // 添加清空按钮事件监听
+        document.getElementById('clearAllBtn').addEventListener('click', clearAllImages);
+
+        // 点击选择文件按钮的处理
+        document.getElementById('fileInput').addEventListener('change', function (e) {
+            handleFiles(e.target.files);
+        });
+
+        // 对齐方式选择按钮的点击事件
+        document.querySelectorAll('#alignmentGrid button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // 移除所有按钮的选中状态
+                document.querySelectorAll('#alignmentGrid button').forEach(b => b.classList.remove('selected'));
+                // 添加当前按钮的选中状态
+                btn.classList.add('selected');
+                // 更新选中的对齐方式
+                selectedAlignment = btn.dataset.align;
+            });
+        });
+
+        // 处理图片按钮的点击事件
+        document.getElementById('processBtn').addEventListener('click', previewAllImages);
+
+        // 下载按钮的点击事件
+        document.getElementById('downloadBtn').addEventListener('click', downloadAllImages);
+
+        // 背景色变化事件
+        document.getElementById('previewBgColor').addEventListener('input', updatePreviewBackground);
+
+        // 更新预览区背景色
+        function updatePreviewBackground() {
+            const bgColor = document.getElementById('previewBgColor').value;
+            document.getElementById('previewContainer').style.backgroundColor = bgColor;
+        }
+
+        // 修改预览所有图片的函数，以处理null值
+        function previewAllImages() {
+            // 获取用户设置的参数
+            const newWidth = parseInt(document.getElementById('newWidth').value);
+            const newHeight = parseInt(document.getElementById('newHeight').value);
+
+            // 参数验证
+            if (!newWidth || !newHeight) {
+                alert('请输入有效的宽度和高度');
+                return;
+            }
+
+            // 重置处理后的图片数组和预览容器
+            processedImages = [];
+            const previewContainer = document.getElementById('previewContainer');
+            previewContainer.innerHTML = '';
+
+            // 初始化背景色
+            updatePreviewBackground();
+
+            // 处理每一张图片
+            images.forEach((img, index) => {
+                // 跳过已删除的图片（null值）
+                if (img === null) return;
+
+                // 创建画布
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                // 设置画布尺寸为用户指定的尺寸
+                canvas.width = newWidth;
+                canvas.height = newHeight;
+
+                // 根据选择的对齐方式计算图片在画布中的位置
+                const [xAlign, yAlign] = selectedAlignment.split(' ');
+                let x = 0; // 图片在画布上的X坐标
+                let y = 0; // 图片在画布上的Y坐标
+
+                // 计算水平方向的位置
+                if (xAlign === 'center') x = (newWidth - img.width) / 2;
+                else if (xAlign === 'right') x = newWidth - img.width;
+
+                // 计算垂直方向的位置
+                if (yAlign === 'center') y = (newHeight - img.height) / 2;
+                else if (yAlign === 'bottom') y = newHeight - img.height;
+
+                // 在画布上绘制图像，不进行缩放，保持原始尺寸
+                ctx.drawImage(img, x, y);
+
+                // 将处理后的图片信息保存起来，用于后续下载
+                processedImages.push({
+                    dataUrl: canvas.toDataURL('image/png', 1.0),
+                    index: index
+                });
+
+                // 创建预览图片元素
+                const previewImg = new Image();
+                previewImg.className = 'thumbnail';
+                previewImg.src = canvas.toDataURL('image/png', 1.0);
+                previewImg.style.margin = '5px';
+                previewImg.style.border = '1px solid #ddd';
+                previewImg.title = `图片 ${index + 1}`;
+
+                // 添加到预览容器
+                previewContainer.appendChild(previewImg);
+            });
+
+            // 显示下载按钮
+            if (processedImages.length > 0) {
+                document.getElementById('downloadBtn').style.display = 'block';
+            }
+        }
+
+        // 修改下载函数，确保处理好的数组中没有null值
+        function downloadAllImages() {
+            // 获取文件前缀
+            const filePrefix = document.getElementById('filePrefix').value || 'processed';
+
+            // 逐个下载图片
+            processedImages.forEach(imgInfo => {
+                const link = document.createElement('a');
+                link.download = `${filePrefix}-${imgInfo.index + 1}.png`; // 设置文件名
+                link.href = imgInfo.dataUrl; // 设置图片数据
+                document.body.appendChild(link);
+                link.click(); // 自动触发下载
+                document.body.removeChild(link); // 下载后移除下载链接
+            });
+        }
+
+        // 添加新按钮的事件监听
+        document.getElementById('previewAndDownloadBtn').addEventListener('click', previewAndDownload);
+
+        // 新增预览并下载函数
+        function previewAndDownload() {
+            // 先执行预览
+            previewAllImages();
+
+            // 确保有处理后的图片再执行下载
+            if (images.length > 0) {
+                // 短暂延迟后执行下载，确保预览已完成
+                // 使用更长的延迟确保所有图片都已处理完毕
+                setTimeout(() => {
+                    downloadAllImages();
+                }, 500);
+            }
+        }
+
+        // 添加点击事件，使整个拖放区域可点击
+        dropZone.addEventListener('click', function () {
+            document.getElementById('fileInput').click();
+        });
+
+        // 为了更好的用户体验，添加指针样式
+        dropZone.style.cursor = 'pointer';
+    </script>
+</body>
+
+</html>
