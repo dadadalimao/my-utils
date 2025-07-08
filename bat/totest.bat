@@ -54,15 +54,6 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: Check if remote test branch exists
-echo [DEBUG] Checking if remote test branch exists...
-echo [CMD] git rev-parse --verify !REMOTE_NAME!/test
-git rev-parse --verify !REMOTE_NAME!/test >nul 2>&1
-if %ERRORLEVEL% neq 0 (
-    echo Error: Remote test branch (!REMOTE_NAME!/test) does not exist
-    exit /b 1
-)
-
 :: Prompt user for confirmation
 echo.
 echo Will perform the following operations:
