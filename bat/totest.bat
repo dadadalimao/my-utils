@@ -36,10 +36,10 @@ echo 3. Merge %CURRENT_BRANCH% to test branch
 echo 4. Push test branch to remote
 echo 5. Return to current branch
 set /p CONFIRM=Confirm to continue? (y/n):
-if /i not "%CONFIRM%"=="y" (
+if /i "%CONFIRM%"=="n" (
     echo Operation cancelled
     exit /b 0
-)
+) 
 
 :: Switch to test branch
 echo Switching to test branch...
