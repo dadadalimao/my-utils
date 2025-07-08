@@ -20,8 +20,10 @@ if "!CURRENT_BRANCH!"=="" (
 :: Get default remote name
 echo [DEBUG] Getting default remote name...
 echo [CMD] git remote
-for /f "tokens=1" %%i in ('git remote') do set REMOTE_NAME=%%i & goto :got_remote
+for /f "tokens=1 delims= " %%i in ('git remote') do set REMOTE_NAME=%%i & goto :got_remote
 :got_remote
+:: Remove trailing spaces
+set REMOTE_NAME=!REMOTE_NAME: =!
 echo [DEBUG] Remote name: [!REMOTE_NAME!]
 if "!REMOTE_NAME!"=="" (
     echo Error: No remote repository found
