@@ -2,96 +2,138 @@
 <html lang="zh">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Word转HTML</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Word转HTML</title>
 
-    <!-- 引入 mammoth.js 库 -->
-    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.4.8/mammoth.browser.min.js"></script>
-    <!-- 引入 FileSaver.js 库 -->
-    <script src="https://cdn.bootcdn.net/ajax/libs/FileSaver.js/2.0.5/FileSaver.js"></script>
-    <!-- 引入统一导航栏 -->
-    <script src="nav.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
+  <!-- 引入 mammoth.js 库 -->
+  <script src="js/mammoth.browser.min.js"></script>
+  <script src="js/mammoth.config.js"></script>
+  <!-- 引入 FileSaver.js 库 -->
+  <script src="js/FileSaver2.0.5.js"></script>
+  <!-- 引入统一导航栏 -->
+  <script src="nav.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
 
-        #output {
-            margin-top: 20px;
-        }
-    </style>
+    #output {
+      margin-top: 20px;
+    }
+
+    #dropZone {
+      border: 2px dashed #ccc;
+      padding: 40px;
+      text-align: center;
+      margin: 20px 0;
+      background-color: #fafafa;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+
+    #dropZone.dragover {
+      background-color: #e1f5fe;
+      border-color: #2196f3;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    .upload-text {
+      font-size: 18px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    .upload-icon {
+      font-size: 48px;
+      color: #999;
+      margin-bottom: 10px;
+    }
+
+    #convertButton {
+      padding: 10px 20px;
+      background-color: #2196f3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.3s ease;
+    }
+
+    #convertButton:hover {
+      background-color: #1976d2;
+    }
+  </style>
 </head>
 
 <body>
-    <h1>Word转HTML</h1>
-    <div id="dropZone" style="border: 2px dashed #ccc; padding: 20px; text-align: center; margin: 20px 0;">
-        拖放文件到这里 或
-        <input type="file" id="fileInput" accept=".docx">
-    </div>
-    <button id="convertButton">转换并下载</button>
-    <div id="output"></div>
+  <h1>Word转HTML</h1>
+  <div id="dropZone">
+    <div class="upload-icon">📄</div>
+    <div class="upload-text">拖放Word文件到这里 或 点击选择文件</div>
+    <input type="file" id="fileInput" accept=".docx">
+  </div>
+  <button id="convertButton">转换并下载</button>
+  <div id="output"></div>
 
-    <script>
-        // 添加拖放事件处理
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
+  <script>
+    // 添加拖放事件处理
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
 
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.style.backgroundColor = '#f0f0f0';
-        });
+    // 点击上传区域触发文件选择
+    dropZone.addEventListener('click', () => {
+      fileInput.click();
+    });
 
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.style.backgroundColor = '';
-        });
+    // 文件选择变化时更新显示
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length > 0) {
+        dropZone.querySelector('.upload-text').textContent = `已选择: ${fileInput.files[0].name}`;
+      }
+    });
 
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.style.backgroundColor = '';
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                fileInput.files = files;
-            }
-        });
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
 
-        document.getElementById('convertButton').addEventListener('click', function () {
-            const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function (event) {
-                    const arrayBuffer = event.target.result;
-                    const styleMap = [
-                        "p => p:margin-top(0):margin-bottom(0):line-height(1.5)", // 保留段落的行高
-                        "h1 => h1:margin-top(0):margin-bottom(0):line-height(1.5)", // 保留标题的行高
-                        "h2 => h2:margin-top(0):margin-bottom(0):line-height(1.5)",
-                        "h3 => h3:margin-top(0):margin-bottom(0):line-height(1.5)",
-                        "h4 => h4:margin-top(0):margin-bottom(0):line-height(1.5)",
-                        "h5 => h5:margin-top(0):margin-bottom(0):line-height(1.5)",
-                        "h6 => h6:margin-top(0):margin-bottom(0):line-height(1.5)",
-                        "table => table:border-collapse(collapse):width(100%)",
-                        "td => td:padding(5px):border(1px solid #ddd)",
-                        "th => th:padding(5px):border(1px solid #ddd):background-color(#f5f5f5)",
-                        "ul => ul:list-style-type(disc):margin-left(20px)",
-                        "ol => ol:list-style-type(decimal):margin-left(20px)",
-                        "li => li:margin-bottom(5px)",
-                        "strong => strong:font-weight(bold)",
-                        "em => em:font-style(italic)",
-                        "u => u:text-decoration(underline)"
-                    ];
-                    mammoth.convertToHtml({ arrayBuffer: arrayBuffer, styleMap: styleMap })
-                        .then(function (result) {
-                            const htmlContent = result.value; // The generated HTML
-                            const fullHtmlContent = `
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Converted Document</title>
-    <style>
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        fileInput.files = files;
+        dropZone.querySelector('.upload-text').textContent = `已选择: ${files[0].name}`;
+      }
+    });
+
+    document.getElementById('convertButton').addEventListener('click', function () {
+      const fileInput = document.getElementById('fileInput');
+      const file = fileInput.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function (event) {
+          const arrayBuffer = event.target.result;
+          mammoth.convertToHtml({ arrayBuffer: arrayBuffer }, options)
+            .then(function (result) {
+              const htmlContent = result.value;
+              const fullHtmlContent = `&lt;!DOCTYPE html&gt;
+&lt;html lang="zh"&gt;
+&lt;head&gt;
+    &lt;meta charset="UTF-8"&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+    &lt;title&gt;${docTitle || 'doc'}&lt;/title&gt;
+    &lt;style&gt;
         * {
             margin: 0;
             padding: 0;
@@ -133,27 +175,65 @@
             height: auto;
             margin: 10px 0;
         }
-    </style>
-</head>
-<body>
-    ${htmlContent}
-</body>
-</html>
-`;
-                            const blob = new Blob([fullHtmlContent], { type: 'text/html;charset=utf-8' });
-                            saveAs(blob, 'converted.html');
-                        })
-                        .catch(function (err) {
-                            console.error(err);
-                            alert('转换失败，请检查文件格式或重试。');
-                        });
-                };
-                reader.readAsArrayBuffer(file);
-            } else {
-                alert('请选择一个Word文件。');
+        .title {
+            text-align: center;
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        @media screen and (max-width: 768px) {
+            .title {
+                font-size: 24px;
             }
-        });
-    </script>
+        }
+        /* 补充Quill样式 */
+        .ql-align-center {
+            text-align: center;
+        }
+        .ql-align-right {
+            text-align: right;
+        }
+        .ql-align-justify {
+            text-align: justify;
+        }
+        .ql-bold {
+            font-weight: bold;
+        }
+        .ql-italic {
+            font-style: italic;
+        }
+        .ql-underline {
+            text-decoration: underline;
+        }
+        .ql-strike {
+            text-decoration: line-through;
+        }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    ${htmlContent}
+&lt;/body&gt;
+&lt;/html&gt;`;
+
+              // 在保存之前解码HTML实体
+              const decodedContent = fullHtmlContent
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>');
+
+              const blob = new Blob([decodedContent], { type: 'text/html;charset=utf-8' });
+              saveAs(blob, `${docTitle || 'doc'}.html`);
+            })
+            .catch(function (err) {
+              console.error(err);
+              alert('转换失败，请检查文件格式或重试。');
+            });
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        alert('请选择一个Word文件。');
+      }
+    });
+  </script>
 </body>
 
 </html>

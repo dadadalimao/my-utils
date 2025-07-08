@@ -1,0 +1,614 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <title>阿里云实人认证</title>
+    <!-- 引入阿里云实人认证JS，全局注入getMetaInfo方法 -->
+    <script type="text/javascript" src="https://o.alicdn.com/yd-cloudauth/cloudauth-cdn/jsvm_all.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            max-width: 500px;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            text-align: center;
+            padding: 30px 20px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 40px 30px;
+        }
+
+        .auth-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .auth-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            color: white;
+            font-size: 32px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #6c757d;
+            border: 1px solid #dee2e6;
+        }
+
+        .btn-secondary:hover {
+            background: #e9ecef;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .result-section {
+            display: none;
+            text-align: center;
+        }
+
+        .result-success {
+            color: #28a745;
+        }
+
+        .result-error {
+            color: #dc3545;
+        }
+
+        .result-details {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            text-align: left;
+            font-size: 12px;
+            color: #6c757d;
+            word-break: break-all;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .tips {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .tips h4 {
+            margin-bottom: 8px;
+            color: #1976d2;
+            font-size: 14px;
+        }
+
+        .tips ul {
+            margin-left: 20px;
+            font-size: 13px;
+            color: #424242;
+        }
+
+        .tips li {
+            margin-bottom: 5px;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                margin: 10px;
+                border-radius: 15px;
+            }
+
+            .content {
+                padding: 30px 20px;
+            }
+
+            .header {
+                padding: 25px 20px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔒 实人认证</h1>
+            <p>安全可靠的身份验证服务</p>
+        </div>
+
+        <div class="content">
+            <!-- 认证配置区域 -->
+            <div id="configSection">
+                <div class="tips">
+                    <h4>📋 使用说明</h4>
+                    <ul>
+                        <li>请确保网络连接稳定</li>
+                        <li>建议使用Chrome、Safari等主流浏览器</li>
+                        <li>请在光线充足的环境下进行认证</li>
+                        <li>认证过程中请保持面部正对摄像头</li>
+                    </ul>
+                </div>
+
+                <div class="tips">
+                    <h4>⚙️ 接口配置</h4>
+                    <ul>
+                        <li><strong>初始化接口：</strong>https://your-backend-api.com/auth/init</li>
+                        <li><strong>查询接口：</strong>https://your-backend-api.com/auth/query</li>
+                    </ul>
+                    <p style="margin-top: 10px; font-size: 12px; color: #666;">
+                        💡 如需修改接口地址，请在代码顶部的API_CONFIG中配置
+                    </p>
+                </div>
+
+                <div class="auth-section">
+                    <div class="auth-icon">👤</div>
+                    <button id="startAuthBtn" class="btn btn-primary">开始实人认证</button>
+                    <button id="testBtn" class="btn btn-secondary">测试MetaInfo获取</button>
+                </div>
+            </div>
+
+            <!-- 加载状态 -->
+            <div id="loadingSection" class="loading">
+                <div class="loading-spinner"></div>
+                <p>正在初始化认证...</p>
+            </div>
+
+            <!-- 结果展示区域 -->
+            <div id="resultSection" class="result-section">
+                <div id="resultIcon" class="auth-icon">✓</div>
+                <h3 id="resultTitle">认证结果</h3>
+                <p id="resultMessage">认证处理中...</p>
+                <div id="resultDetails" class="result-details"></div>
+                <button id="resetBtn" class="btn btn-secondary">重新认证</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 配置区域 ====================
+        // 请在这里配置您的接口地址
+        const API_CONFIG = {
+            // 认证初始化接口地址
+            INIT_API_URL: 'https://your-backend-api.com/auth/init',
+            // 认证结果查询接口地址  
+            QUERY_API_URL: 'https://your-backend-api.com/auth/query'
+        };
+        // ==================== 配置区域结束 ==================
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function () {
+            console.log('页面加载完成，开始初始化...');
+            console.log('当前配置:', API_CONFIG);
+
+            // 检查是否是从认证返回的页面
+            checkAuthResult();
+
+            // 绑定事件
+            bindEvents();
+        });
+
+        // 绑定事件
+        function bindEvents() {
+            document.getElementById('startAuthBtn').addEventListener('click', startAuthentication);
+            document.getElementById('testBtn').addEventListener('click', testMetaInfo);
+            document.getElementById('resetBtn').addEventListener('click', resetPage);
+        }
+
+        // 检查认证结果
+        function checkAuthResult() {
+            const url = new URL(window.location.href);
+            const responseParam = url.searchParams.get('response');
+
+            if (responseParam) {
+                console.log('检测到认证返回结果:', responseParam);
+                try {
+                    const result = JSON.parse(decodeURIComponent(responseParam));
+                    handleAuthResult(result);
+                } catch (error) {
+                    console.error('解析认证结果失败:', error);
+                    showError('认证结果解析失败: ' + error.message);
+                }
+            }
+        }
+
+        // 测试MetaInfo获取
+        function testMetaInfo() {
+            try {
+                if (typeof window.getMetaInfo !== 'function') {
+                    throw new Error('getMetaInfo函数未加载，请检查网络连接');
+                }
+
+                const metaInfo = window.getMetaInfo();
+                console.log('MetaInfo获取成功:', metaInfo);
+
+                showResult({
+                    success: true,
+                    title: 'MetaInfo获取成功',
+                    message: '设备信息已成功获取，可以进行认证',
+                    details: {
+                        metaInfo: metaInfo,
+                        timestamp: new Date().toLocaleString(),
+                        userAgent: navigator.userAgent
+                    }
+                });
+            } catch (error) {
+                console.error('MetaInfo获取失败:', error);
+                showError('MetaInfo获取失败: ' + error.message);
+            }
+        }
+
+        // 开始认证
+        async function startAuthentication() {
+            const initApiUrl = API_CONFIG.INIT_API_URL;
+
+            if (!initApiUrl) {
+                alert('请在代码中配置认证初始化接口地址');
+                return;
+            }
+
+            try {
+                showLoading('正在获取设备信息...');
+
+                // 获取MetaInfo
+                if (typeof window.getMetaInfo !== 'function') {
+                    throw new Error('getMetaInfo函数未加载，请检查网络连接或稍后重试');
+                }
+
+                const metaInfo = window.getMetaInfo();
+                console.log('MetaInfo获取成功:', metaInfo);
+
+                showLoading('正在初始化认证...');
+
+                // 调用后端接口获取CertifyUrl
+                const response = await fetch(initApiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        metaInfo: metaInfo,
+                        timestamp: Date.now(),
+                        returnUrl: window.location.href // 认证完成后返回当前页面
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP错误: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('认证初始化响应:', data);
+
+                // 根据实际API响应结构调整
+                let certifyUrl;
+                if (data.resultObject && data.resultObject.certifyUrl) {
+                    certifyUrl = data.resultObject.certifyUrl;
+                } else if (data.certifyUrl) {
+                    certifyUrl = data.certifyUrl;
+                } else if (data.data && data.data.certifyUrl) {
+                    certifyUrl = data.data.certifyUrl;
+                } else {
+                    throw new Error('未获取到有效的认证URL，请检查接口返回格式');
+                }
+
+                console.log('准备跳转到认证页面:', certifyUrl);
+                hideLoading();
+
+                // 跳转到认证页面
+                window.location.href = certifyUrl;
+
+            } catch (error) {
+                console.error('认证初始化失败:', error);
+                hideLoading();
+                showError('认证初始化失败: ' + error.message);
+            }
+        }
+
+        // 处理认证结果
+        function handleAuthResult(result) {
+            console.log('处理认证结果:', result);
+
+            const code = result.code;
+            const subCode = result.subCode;
+            const reason = result.reason;
+            const extInfo = result.extInfo || {};
+            const certifyId = extInfo.certifyId;
+
+            let success = false;
+            let title = '';
+            let message = '';
+
+            switch (code) {
+                case '1000':
+                    success = true;
+                    title = '✅ 认证成功';
+                    message = '刷脸认证已完成，建议结果为通过';
+                    break;
+                case '1001':
+                    title = '❌ 系统错误';
+                    message = '认证过程中发生系统错误，请稍后重试';
+                    break;
+                case '1003':
+                    title = '⚠️ 验证中断';
+                    message = '认证过程被中断，请重新尝试';
+                    break;
+                case '2002':
+                    title = '🌐 网络错误';
+                    message = '网络连接异常，请检查网络后重试';
+                    break;
+                case '2003':
+                    title = '⏰ 设备时间错误';
+                    message = '设备时间不正确，请调整后重试';
+                    break;
+                case '2006':
+                    title = '❌ 认证失败';
+                    message = '刷脸验证失败或失败次数过多';
+                    break;
+                default:
+                    title = '❓ 未知状态';
+                    message = `认证返回未知状态码: ${code}`;
+            }
+
+            showResult({
+                success: success,
+                title: title,
+                message: message,
+                details: {
+                    code: code,
+                    subCode: subCode,
+                    reason: reason,
+                    certifyId: certifyId,
+                    timestamp: new Date().toLocaleString(),
+                    fullResult: result
+                }
+            });
+
+            // 如果有certifyId且配置了查询接口，可以进行二次验证
+            if (certifyId && API_CONFIG.QUERY_API_URL) {
+                queryAuthResult(certifyId);
+            }
+        }
+
+        // 查询认证详细结果
+        async function queryAuthResult(certifyId) {
+            const queryApiUrl = API_CONFIG.QUERY_API_URL;
+
+            if (!queryApiUrl) {
+                console.log('未配置查询接口，跳过二次验证');
+                return;
+            }
+
+            try {
+                console.log('开始查询认证详细结果...');
+
+                const response = await fetch(queryApiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        certifyId: certifyId
+                    })
+                });
+
+                const data = await response.json();
+                console.log('认证详细结果:', data);
+
+                // 更新结果显示
+                const currentDetails = document.getElementById('resultDetails').innerHTML;
+                document.getElementById('resultDetails').innerHTML = currentDetails +
+                    '<hr style="margin: 15px 0;"><strong>详细验证结果:</strong><br>' +
+                    JSON.stringify(data, null, 2);
+
+            } catch (error) {
+                console.error('查询认证详细结果失败:', error);
+            }
+        }
+
+        // 显示加载状态
+        function showLoading(message) {
+            document.getElementById('configSection').style.display = 'none';
+            document.getElementById('resultSection').style.display = 'none';
+            document.getElementById('loadingSection').style.display = 'block';
+            document.querySelector('#loadingSection p').textContent = message || '处理中...';
+        }
+
+        // 隐藏加载状态
+        function hideLoading() {
+            document.getElementById('loadingSection').style.display = 'none';
+            document.getElementById('configSection').style.display = 'block';
+        }
+
+        // 显示结果
+        function showResult(result) {
+            document.getElementById('configSection').style.display = 'none';
+            document.getElementById('loadingSection').style.display = 'none';
+            document.getElementById('resultSection').style.display = 'block';
+
+            const resultIcon = document.getElementById('resultIcon');
+            const resultTitle = document.getElementById('resultTitle');
+            const resultMessage = document.getElementById('resultMessage');
+            const resultDetails = document.getElementById('resultDetails');
+
+            if (result.success) {
+                resultIcon.textContent = '✅';
+                resultIcon.className = 'auth-icon result-success';
+                resultTitle.className = 'result-success';
+            } else {
+                resultIcon.textContent = '❌';
+                resultIcon.className = 'auth-icon result-error';
+                resultTitle.className = 'result-error';
+            }
+
+            resultTitle.textContent = result.title;
+            resultMessage.textContent = result.message;
+            resultDetails.innerHTML = '<strong>详细信息:</strong><br>' +
+                JSON.stringify(result.details, null, 2);
+        }
+
+        // 显示错误
+        function showError(message) {
+            showResult({
+                success: false,
+                title: '发生错误',
+                message: message,
+                details: {
+                    timestamp: new Date().toLocaleString(),
+                    userAgent: navigator.userAgent,
+                    url: window.location.href
+                }
+            });
+        }
+
+        // 重置页面
+        function resetPage() {
+            // 清除URL参数
+            const url = new URL(window.location.href);
+            url.searchParams.delete('response');
+            window.history.replaceState({}, document.title, url.toString());
+
+            // 重置显示
+            document.getElementById('configSection').style.display = 'block';
+            document.getElementById('loadingSection').style.display = 'none';
+            document.getElementById('resultSection').style.display = 'none';
+        }
+
+        // 错误处理
+        window.addEventListener('error', function (event) {
+            console.error('页面发生错误:', event.error);
+        });
+
+        // 页面卸载前清理
+        window.addEventListener('beforeunload', function () {
+            console.log('页面即将卸载...');
+        });
+    </script>
+</body>
+
+</html>

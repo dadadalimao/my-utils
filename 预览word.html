@@ -1,0 +1,167 @@
+<script type="text/javascript">
+  var gk_isXlsx = false;
+  var gk_xlsxFileLookup = {};
+  var gk_fileData = {};
+  function filledCell(cell) {
+    return cell !== '' && cell != null;
+  }
+  function loadFileData(filename) {
+    if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+      try {
+        var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+        var firstSheetName = workbook.SheetNames[0];
+        var worksheet = workbook.Sheets[firstSheetName];
+
+        // Convert sheet to JSON to filter blank rows
+        var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+        // Filter out blank rows (rows where all cells are empty, null, or undefined)
+        var filteredData = jsonData.filter(row => row.some(filledCell));
+
+        // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+        var headerRowIndex = filteredData.findIndex((row, index) =>
+          row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+        );
+        // Fallback
+        if (headerRowIndex === -1 || headerRowIndex > 25) {
+          headerRowIndex = 0;
+        }
+
+        // Convert filtered JSON back to CSV
+        var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+        csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+        return csv;
+      } catch (e) {
+        console.error(e);
+        return "";
+      }
+    }
+    return gk_fileData[filename] || "";
+  }
+</script>
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Word Document Preview</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const WordPreview = ({ fileUrl }) => {
+      const [content, setContent] = useState('');
+      const [scale, setScale] = useState(1);
+      const [error, setError] = useState(null);
+      const previewRef = useRef(null);
+
+      // 加载和解析Word文件
+      useEffect(() => {
+        const fetchAndRenderDoc = async () => {
+          try {
+            const response = await fetch(fileUrl);
+            if (!response.ok) throw new Error('无法获取文件');
+            const arrayBuffer = await response.arrayBuffer();
+            const result = await window.mammoth.convertToHtml({ arrayBuffer });
+            setContent(result.value);
+          } catch (err) {
+            setError('加载文档失败: ' + err.message);
+          }
+        };
+        fetchAndRenderDoc();
+      }, [fileUrl]);
+
+      // 放大缩小
+      const handleZoomIn = () => setScale(prev => Math.min(prev + 0.1, 2));
+      const handleZoomOut = () => setScale(prev => Math.max(prev - 0.1, 0.5));
+
+      // 鼠标滚轮缩放
+      const handleWheel = (e) => {
+        if (e.ctrlKey) {
+          e.preventDefault();
+          setScale(prev => {
+            const newScale = prev + (e.deltaY > 0 ? -0.05 : 0.05);
+            return Math.max(0.5, Math.min(newScale, 2));
+          });
+        }
+      };
+
+      // 翻页逻辑
+      const scrollToPage = (direction) => {
+        const container = previewRef.current;
+        if (!container) return;
+        const pageHeight = container.clientHeight;
+        const currentScroll = container.scrollTop;
+        const targetScroll = direction === 'next'
+          ? currentScroll + pageHeight
+          : currentScroll - pageHeight;
+        container.scrollTo({ top: targetScroll, behavior: 'smooth' });
+      };
+
+      return (
+        <div className="flex flex-col items-center h-screen bg-gray-100">
+          <div className="flex space-x-4 p-4 bg-white shadow-md w-full max-w-4xl">
+            <button
+              onClick={handleZoomOut}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              缩小
+            </button>
+            <span className="text-lg">{Math.round(scale * 100)}%</span>
+            <button
+              onClick={handleZoomIn}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              放大
+            </button>
+            <button
+              onClick={() => scrollToPage('prev')}
+              className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            >
+              上一页
+            </button>
+            <button
+              onClick={() => scrollToPage('next')}
+              className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            >
+              下一页
+            </button>
+          </div>
+          <div
+            ref={previewRef}
+            className="w-full max-w-4xl h-[80vh] overflow-y-auto bg-white shadow-lg p-8"
+            style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}
+            onWheel={handleWheel}
+          >
+            {error ? (
+              <div className="text-red-500 text-center">{error}</div>
+            ) : (
+              <div
+                className="prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: content }}
+              />
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const App = () => {
+      // 替换为你的内网文件地址
+      const fileUrl = 'http://localhost:8000/api/file/download/630672462996045824';
+      return <WordPreview fileUrl={fileUrl} />;
+    };
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+
+</html>

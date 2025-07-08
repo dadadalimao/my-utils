@@ -12,6 +12,10 @@
             margin: 0;
         }
 
+        canvas {
+            display: block;
+        }
+
         .tool-content {
             padding: 20px;
         }
@@ -386,7 +390,8 @@
                 // 计算垂直方向的位置
                 if (yAlign === 'center') y = (newHeight - img.height) / 2;
                 else if (yAlign === 'bottom') y = newHeight - img.height;
-
+                x = Math.round(x);  // 四舍五入到整数
+                y = Math.round(y);  // 四舍五入到整数
                 // 在画布上绘制图像，不进行缩放，保持原始尺寸
                 ctx.drawImage(img, x, y);
 
@@ -396,16 +401,45 @@
                     index: index
                 });
 
-                // 创建预览图片元素
-                const previewImg = new Image();
-                previewImg.className = 'thumbnail';
-                previewImg.src = canvas.toDataURL('image/png', 1.0);
-                previewImg.style.margin = '5px';
-                previewImg.style.border = '1px solid #ddd';
-                previewImg.title = `图片 ${index + 1}`;
+                // 创建预览容器
+                const imgContainer = document.createElement('div');
+                imgContainer.style.display = 'inline-block';
+                imgContainer.style.margin = '5px';
+                imgContainer.style.border = '1px solid #ddd';
+                imgContainer.style.position = 'relative';
+
+                // 计算预览尺寸，保持宽高比
+                const maxPreviewSize = 150;
+                let previewWidth = newWidth;
+                let previewHeight = newHeight;
+
+                if (previewWidth > previewHeight) {
+                    if (previewWidth > maxPreviewSize) {
+                        previewHeight = (previewHeight * maxPreviewSize) / previewWidth;
+                        previewWidth = maxPreviewSize;
+                    }
+                } else {
+                    if (previewHeight > maxPreviewSize) {
+                        previewWidth = (previewWidth * maxPreviewSize) / previewHeight;
+                        previewHeight = maxPreviewSize;
+                    }
+                }
+
+                // 创建预览canvas
+                const previewCanvas = document.createElement('canvas');
+                previewCanvas.width = previewWidth;
+                previewCanvas.height = previewHeight;
+                previewCanvas.title = `图片 ${index + 1}`;
+
+                // 在预览canvas上绘制图像
+                const previewCtx = previewCanvas.getContext('2d');
+                // 设置imageSmoothingEnabled为false以避免模糊
+                previewCtx.imageSmoothingEnabled = false;
+                previewCtx.drawImage(canvas, 0, 0, previewWidth, previewHeight);
 
                 // 添加到预览容器
-                previewContainer.appendChild(previewImg);
+                imgContainer.appendChild(previewCanvas);
+                previewContainer.appendChild(imgContainer);
             });
 
             // 显示下载按钮

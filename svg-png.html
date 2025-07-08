@@ -85,6 +85,20 @@
       将SVG文件拖放到此处，或点击选择文件
       <input type="file" id="fileInput" accept="image/svg+xml" hidden>
     </div>
+
+    <!-- 背景选择器 -->
+    <div class="bg-selector" style="margin: 15px 0;">
+      <label>预览背景：</label>
+      <select id="bgSelector" style="padding: 5px; margin-right: 10px;">
+        <option value="transparent">透明</option>
+        <option value="white">白色</option>
+        <option value="black">黑色</option>
+        <option value="gray">灰色</option>
+        <option value="custom">自定义</option>
+      </select>
+      <input type="color" id="customBgColor" style="vertical-align: middle;">
+    </div>
+
     <img id="preview">
 
     <!-- 导出按钮 -->
@@ -125,6 +139,25 @@
     dropZone.addEventListener('drop', handleDrop);
     fileInput.addEventListener('change', handleFileSelect);
 
+    // 在拖放处理相关代码后添加背景选择器事件监听
+    const bgSelector = document.getElementById('bgSelector');
+    const customBgColor = document.getElementById('customBgColor');
+
+    // 监听背景选择器变化
+    bgSelector.addEventListener('change', updatePreviewBackground);
+    customBgColor.addEventListener('change', updatePreviewBackground);
+
+    // 更新预览背景的函数
+    function updatePreviewBackground() {
+      let bgColor = bgSelector.value;
+
+      if (bgColor === 'custom') {
+        bgColor = customBgColor.value;
+      }
+
+      preview.style.background = bgColor;
+    }
+
     async function handleDrop(e) {
       e.preventDefault();
       dropZone.classList.remove('dragover');
@@ -146,6 +179,18 @@
       reader.onload = async (e) => {
         originalSVG = e.target.result;
         preview.src = URL.createObjectURL(file);
+
+        // 应用背景颜色
+        const bgSelector = document.getElementById('bgSelector');
+        const customBgColor = document.getElementById('customBgColor');
+        let bgColor = bgSelector.value;
+
+        if (bgColor === 'custom') {
+          bgColor = customBgColor.value;
+        }
+
+        preview.style.background = bgColor;
+
         exportBtns.style.display = 'flex';
       };
       reader.readAsDataURL(file);
@@ -157,6 +202,17 @@
         alert('请输入SVG代码');
         return;
       }
+
+      // 应用背景颜色
+      const bgSelector = document.getElementById('bgSelector');
+      const customBgColor = document.getElementById('customBgColor');
+      let bgColor = bgSelector.value;
+
+      if (bgColor === 'custom') {
+        bgColor = customBgColor.value;
+      }
+
+      preview.style.background = bgColor;
 
       // 将SVG代码转换为Blob对象并生成预览
       const blob = new Blob([svgCode], { type: 'image/svg+xml' });

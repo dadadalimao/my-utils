@@ -1,0 +1,22 @@
+# Git忽略文件配置
+
+# 忽略临时文件夹
+临时/
+/临时
+**/临时
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+
+# 依赖目录
+/node_modules
+/dist
+/build
+
+# 日志文件
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
