@@ -54,10 +54,11 @@ if %ERRORLEVEL% neq 0 (
 
 :: Check if remote test branch exists
 echo [DEBUG] Checking if remote test branch exists...
-echo [CMD] git rev-parse --verify !REMOTE_NAME!/test
-git rev-parse --verify !REMOTE_NAME!/test >nul 2>&1
+set REMOTE_TEST_BRANCH=!REMOTE_NAME!/test
+echo [CMD] git rev-parse --verify !REMOTE_TEST_BRANCH!
+git rev-parse --verify !REMOTE_TEST_BRANCH! >nul 2>&1
 if %ERRORLEVEL% neq 0 (
-    echo Error: Remote test branch (!REMOTE_NAME!/test) does not exist
+    echo Error: Remote test branch (!REMOTE_TEST_BRANCH!) does not exist
     exit /b 1
 )
 
@@ -65,7 +66,7 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo Will perform the following operations:
 echo 1. Switch to test branch
-echo 2. Pull latest code from test branch (!REMOTE_NAME!)
+echo 2. Pull latest code from test branch from !REMOTE_NAME!
 echo 3. Merge !CURRENT_BRANCH! to test branch
 echo 4. Push test branch to !REMOTE_NAME!
 echo 5. Return to current branch
@@ -94,12 +95,14 @@ if %ERRORLEVEL% neq 0 (
 
 :: Pull latest code from test branch
 echo Pulling latest code from test branch...
-echo [CMD] git pull !REMOTE_NAME! test
+set PULL_CMD=git pull !REMOTE_NAME! test
+echo [CMD] !PULL_CMD!
 git pull !REMOTE_NAME! test
 if %ERRORLEVEL% neq 0 (
     echo Error: Failed to pull test branch
     echo [DEBUG] Returning to !CURRENT_BRANCH! branch...
-    echo [CMD] git checkout !CURRENT_BRANCH!
+    set ERR_CHECKOUT_CMD=git checkout !CURRENT_BRANCH!
+    echo [CMD] !ERR_CHECKOUT_CMD!
     git checkout !CURRENT_BRANCH!
     exit /b 1
 )
@@ -107,27 +110,31 @@ if %ERRORLEVEL% neq 0 (
 :: Merge current branch to test
 echo.
 echo [DEBUG] About to merge: !CURRENT_BRANCH! into test
-echo [DEBUG] Merge command: git merge !CURRENT_BRANCH! --no-ff
+set MERGE_CMD=git merge !CURRENT_BRANCH! --no-ff
+echo [DEBUG] Merge command: !MERGE_CMD!
 echo Merging !CURRENT_BRANCH! to test branch...
-echo [CMD] git merge !CURRENT_BRANCH! --no-ff
+echo [CMD] !MERGE_CMD!
 git merge !CURRENT_BRANCH! --no-ff
 if %ERRORLEVEL% neq 0 (
     echo Error: Merge failed, there might be conflicts. Please resolve manually
     echo Use 'git merge --abort' to cancel the merge
     echo [DEBUG] Returning to !CURRENT_BRANCH! branch...
-    echo [CMD] git checkout !CURRENT_BRANCH!
+    set ERR_CHECKOUT_CMD2=git checkout !CURRENT_BRANCH!
+    echo [CMD] !ERR_CHECKOUT_CMD2!
     git checkout !CURRENT_BRANCH!
     exit /b 1
 )
 
 :: Push test branch
 echo Pushing test branch to remote...
-echo [CMD] git push !REMOTE_NAME! test
+set PUSH_CMD=git push !REMOTE_NAME! test
+echo [CMD] !PUSH_CMD!
 git push !REMOTE_NAME! test
 if %ERRORLEVEL% neq 0 (
     echo Error: Failed to push test branch
     echo [DEBUG] Returning to !CURRENT_BRANCH! branch...
-    echo [CMD] git checkout !CURRENT_BRANCH!
+    set ERR_CHECKOUT_CMD3=git checkout !CURRENT_BRANCH!
+    echo [CMD] !ERR_CHECKOUT_CMD3!
     git checkout !CURRENT_BRANCH!
     exit /b 1
 )
@@ -136,7 +143,8 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo [DEBUG] Returning to original branch: !CURRENT_BRANCH!
 echo Returning to !CURRENT_BRANCH! branch...
-echo [CMD] git checkout !CURRENT_BRANCH!
+set CHECKOUT_CMD=git checkout !CURRENT_BRANCH!
+echo [CMD] !CHECKOUT_CMD!
 git checkout !CURRENT_BRANCH!
 if %ERRORLEVEL% neq 0 (
     echo Warning: Failed to return to !CURRENT_BRANCH! branch, please switch manually
