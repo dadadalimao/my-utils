@@ -7,9 +7,9 @@
     <title>Word转HTML</title>
 
     <!-- 引入 mammoth.js 库 -->
-    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.4.8/mammoth.browser.min.js"></script>
+    <script src="js/mammoth.browser.min.js"></script>
     <!-- 引入 FileSaver.js 库 -->
-    <script src="https://cdn.bootcdn.net/ajax/libs/FileSaver.js/2.0.5/FileSaver.js"></script>
+    <script src="js/FileSaver.js"></script>
     <!-- 引入统一导航栏 -->
     <script src="nav.js"></script>
     <style>
@@ -84,13 +84,16 @@
                     mammoth.convertToHtml({ arrayBuffer: arrayBuffer, styleMap: styleMap })
                         .then(function (result) {
                             const htmlContent = result.value; // The generated HTML
+                            console.log("🚀 ~ htmlContent:", htmlContent)
+                            // 获取文件名（去掉扩展名）
+                            const fileName = file.name.replace(/\.docx?$/i, '');
                             const fullHtmlContent = `
 <!DOCTYPE html>
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Converted Document</title>
+    <title>${fileName}</title>
     <style>
         * {
             margin: 0;
@@ -137,11 +140,12 @@
 </head>
 <body>
     ${htmlContent}
+    console.log("🚀 ~ htmlContent:", htmlContent)
 </body>
 </html>
 `;
                             const blob = new Blob([fullHtmlContent], { type: 'text/html;charset=utf-8' });
-                            saveAs(blob, 'converted.html');
+                            saveAs(blob, fileName + '.html');
                         })
                         .catch(function (err) {
                             console.error(err);
