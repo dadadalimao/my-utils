@@ -88,7 +88,7 @@
                 </div>
                 <div style="margin-top: 10px;">
                     <label>文件名前缀: </label>
-                    <input type="text" id="filePrefix" value="processed" placeholder="输入文件名前缀">
+                    <input type="text" id="filePrefix" value="" placeholder="输入文件名前缀">
                 </div>
             </div>
 
@@ -136,6 +136,7 @@
     <script>
         // 全局变量声明
         let images = []; // 存储所有上传的图片
+        let imageNames = []; // 存储所有上传的图片文件名
         let selectedAlignment = 'center center'; // 默认对齐方式为居中
         let processedImages = [];
 
@@ -222,6 +223,8 @@
             for (let file of files) {
                 // 只处理图片类型的文件
                 if (file.type.startsWith('image/')) {
+                    // 在闭包中保存文件名，确保异步回调中能正确访问
+                    const fileName = file.name;
                     const reader = new FileReader();
                     // 文件读取完成后执行
                     reader.onload = function (e) {
@@ -241,6 +244,8 @@
 
                             // 将图片添加到全局数组
                             images.push(img);
+                            // 记录文件名
+                            imageNames.push(fileName);
 
                             // 创建缩略图
                             const thumb = new Image();
@@ -285,6 +290,8 @@
 
             // 从images数组中移除对应图片（设为null，保持索引不变）
             images[originalIndex] = null;
+            // 从imageNames数组中移除对应文件名（设为null，保持索引不变）
+            imageNames[originalIndex] = null;
 
             // 检查是否所有图片都已删除
             const hasImages = images.some(img => img !== null);
@@ -301,6 +308,8 @@
 
             // 清空图片数组
             images = [];
+            // 清空文件名数组
+            imageNames = [];
 
             // 隐藏清空按钮
             document.getElementById('clearAllBtn').style.display = 'none';
@@ -393,7 +402,8 @@
                 // 将处理后的图片信息保存起来，用于后续下载
                 processedImages.push({
                     dataUrl: canvas.toDataURL('image/png', 1.0),
-                    index: index
+                    index: index,
+                    fileName: imageNames[index] || `image-${index + 1}`
                 });
 
                 // 创建预览图片元素
@@ -416,13 +426,22 @@
 
         // 修改下载函数，确保处理好的数组中没有null值
         function downloadAllImages() {
-            // 获取文件前缀
-            const filePrefix = document.getElementById('filePrefix').value || 'processed';
+            // 获取文件前缀（如果为空则使用空字符串）
+            const filePrefix = document.getElementById('filePrefix').value.trim();
 
             // 逐个下载图片
             processedImages.forEach(imgInfo => {
                 const link = document.createElement('a');
-                link.download = `${filePrefix}-${imgInfo.index + 1}.png`; // 设置文件名
+                // 使用原始文件名，去掉原扩展名，添加前缀和.png扩展名
+                let fileName = imgInfo.fileName;
+                // 去掉原扩展名
+                const lastDotIndex = fileName.lastIndexOf('.');
+                if (lastDotIndex > 0) {
+                    fileName = fileName.substring(0, lastDotIndex);
+                }
+                // 如果有前缀，添加前缀和连字符；否则直接使用原文件名
+                const finalFileName = filePrefix ? `${filePrefix}-${fileName}.png` : `${fileName}.png`;
+                link.download = finalFileName; // 设置文件名
                 link.href = imgInfo.dataUrl; // 设置图片数据
                 document.body.appendChild(link);
                 link.click(); // 自动触发下载
