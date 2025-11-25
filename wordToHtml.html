@@ -84,7 +84,6 @@
                     mammoth.convertToHtml({ arrayBuffer: arrayBuffer, styleMap: styleMap })
                         .then(function (result) {
                             const htmlContent = result.value; // The generated HTML
-                            console.log("🚀 ~ htmlContent:", htmlContent)
                             // 获取文件名（去掉扩展名）
                             const fileName = file.name.replace(/\.docx?$/i, '');
                             const fullHtmlContent = `
@@ -140,7 +139,6 @@
 </head>
 <body>
     ${htmlContent}
-    console.log("🚀 ~ htmlContent:", htmlContent)
 </body>
 </html>
 `;
