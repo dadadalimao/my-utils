@@ -26,6 +26,46 @@
 
 <body>
     <h1>Word转HTML</h1>
+
+    <!-- 转换配置 -->
+    <div style="margin: 20px 0; padding: 15px; background-color: #f9f9f9; border-radius: 5px;">
+        <h3 style="margin-top: 0;">转换配置</h3>
+        <div style="margin-bottom: 10px;">
+            <label style="display: inline-block; margin-right: 15px;">
+                <input type="radio" name="listNumberType" value="chinese" id="chineseNumber" checked>
+                中文编号（一、二、三...）
+            </label>
+            <label style="display: inline-block;">
+                <input type="radio" name="listNumberType" value="numeric" id="numericNumber">
+                数字编号（1、2、3...）
+            </label>
+        </div>
+    </div>
+
+    <!-- 示例展示 -->
+    <div
+        style="margin: 20px 0; padding: 15px; background-color: #f0f8ff; border-radius: 5px; border-left: 4px solid #4a90e2;">
+        <h3 style="margin-top: 0;">编号示例</h3>
+        <div id="exampleContainer">
+            <div id="chineseExample" style="display: block;">
+                <strong>中文编号示例：</strong>
+                <ol style="list-style: none; padding-left: 0; margin: 10px 0;">
+                    <li>一、第一项内容</li>
+                    <li>二、第二项内容</li>
+                    <li>三、第三项内容</li>
+                </ol>
+            </div>
+            <div id="numericExample" style="display: none;">
+                <strong>数字编号示例：</strong>
+                <ol style="list-style: none; padding-left: 0; margin: 10px 0;">
+                    <li>1、第一项内容</li>
+                    <li>2、第二项内容</li>
+                    <li>3、第三项内容</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
     <div id="dropZone" style="border: 2px dashed #ccc; padding: 20px; text-align: center; margin: 20px 0;">
         拖放文件到这里 或
         <input type="file" id="fileInput" accept=".docx">
@@ -34,6 +74,58 @@
     <div id="output"></div>
 
     <script>
+        // 配置管理
+        const CONFIG_KEY = 'wordToHtml_config';
+
+        // 获取配置，默认中文编号
+        function getConfig() {
+            const saved = localStorage.getItem(CONFIG_KEY);
+            if (saved) {
+                return JSON.parse(saved);
+            }
+            return { listNumberType: 'chinese' };
+        }
+
+        // 保存配置
+        function saveConfig(config) {
+            localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+        }
+
+        // 初始化配置
+        const config = getConfig();
+        const chineseRadio = document.getElementById('chineseNumber');
+        const numericRadio = document.getElementById('numericNumber');
+
+        // 设置单选按钮状态
+        if (config.listNumberType === 'numeric') {
+            numericRadio.checked = true;
+            chineseRadio.checked = false;
+            document.getElementById('chineseExample').style.display = 'none';
+            document.getElementById('numericExample').style.display = 'block';
+        } else {
+            chineseRadio.checked = true;
+            numericRadio.checked = false;
+            document.getElementById('chineseExample').style.display = 'block';
+            document.getElementById('numericExample').style.display = 'none';
+        }
+
+        // 监听配置变更
+        chineseRadio.addEventListener('change', function () {
+            if (this.checked) {
+                saveConfig({ listNumberType: 'chinese' });
+                document.getElementById('chineseExample').style.display = 'block';
+                document.getElementById('numericExample').style.display = 'none';
+            }
+        });
+
+        numericRadio.addEventListener('change', function () {
+            if (this.checked) {
+                saveConfig({ listNumberType: 'numeric' });
+                document.getElementById('chineseExample').style.display = 'none';
+                document.getElementById('numericExample').style.display = 'block';
+            }
+        });
+
         // 添加拖放事件处理
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
@@ -83,16 +175,105 @@
                     ];
                     mammoth.convertToHtml({ arrayBuffer: arrayBuffer, styleMap: styleMap })
                         .then(function (result) {
-                            const htmlContent = result.value; // The generated HTML
-                            // 获取文件名（去掉扩展名）
+                            let htmlContent = result.value; // The generated HTML
+
+                            // 获取当前配置
+                            const currentConfig = getConfig();
+                            const useChineseNumber = currentConfig.listNumberType === 'chinese';
+
+                            // 处理列表格式：确保列表项正确换行，并添加编号
+                            try {
+                                const parser = new DOMParser();
+                                const doc = parser.parseFromString(htmlContent, 'text/html');
+
+                                // 中文数字映射
+                                const chineseNumbers = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十'];
+
+                                // 处理所有有序列表
+                                const olElements = doc.querySelectorAll('ol');
+                                olElements.forEach(ol => {
+                                    const items = ol.querySelectorAll('li');
+                                    items.forEach((li, index) => {
+                                        const text = li.textContent.trim();
+
+                                        // 根据配置选择编号类型
+                                        let numberPrefix = '';
+                                        if (useChineseNumber) {
+                                            // 如果列表项文本不包含中文数字前缀，则添加
+                                            if (!/^[一二三四五六七八九十]+[、.]/.test(text)) {
+                                                numberPrefix = index < chineseNumbers.length
+                                                    ? chineseNumbers[index]
+                                                    : (index + 1).toString();
+                                            }
+                                        } else {
+                                            // 如果列表项文本不包含数字前缀，则添加
+                                            if (!/^\d+[、.]/.test(text)) {
+                                                numberPrefix = (index + 1).toString();
+                                            }
+                                        }
+
+                                        if (numberPrefix) {
+                                            // 检查第一个子节点是否是文本节点或strong标签
+                                            const firstChild = li.firstChild;
+                                            if (firstChild && firstChild.nodeType === 3) {
+                                                // 文本节点
+                                                firstChild.textContent = numberPrefix + '、' + firstChild.textContent;
+                                            } else if (firstChild && firstChild.tagName === 'STRONG') {
+                                                // strong标签
+                                                const strongText = firstChild.textContent;
+                                                firstChild.textContent = numberPrefix + '、' + strongText;
+                                            } else {
+                                                // 其他情况，在开头插入
+                                                const prefix = doc.createTextNode(numberPrefix + '、');
+                                                li.insertBefore(prefix, firstChild);
+                                            }
+                                        }
+                                    });
+                                });
+
+                                htmlContent = doc.body.innerHTML;
+
+                                // 格式化列表，确保列表项之间有换行
+                                htmlContent = htmlContent.replace(/<ol><li>/g, '<ol>\n<li>');
+                                htmlContent = htmlContent.replace(/<\/li><li>/g, '</li>\n<li>');
+                                htmlContent = htmlContent.replace(/<\/li><\/ol>/g, '</li>\n</ol>');
+                                htmlContent = htmlContent.replace(/<ul><li>/g, '<ul>\n<li>');
+                                htmlContent = htmlContent.replace(/<\/li><li>/g, '</li>\n<li>');
+                                htmlContent = htmlContent.replace(/<\/li><\/ul>/g, '</li>\n</ul>');
+                            } catch (e) {
+                                console.warn('处理列表格式时出错:', e);
+                                // 如果处理失败，至少确保换行
+                                htmlContent = htmlContent.replace(/<ol><li>/g, '<ol>\n<li>');
+                                htmlContent = htmlContent.replace(/<\/li><li>/g, '</li>\n<li>');
+                                htmlContent = htmlContent.replace(/<\/li><\/ol>/g, '</li>\n</ol>');
+                                htmlContent = htmlContent.replace(/<ul><li>/g, '<ul>\n<li>');
+                                htmlContent = htmlContent.replace(/<\/li><li>/g, '</li>\n<li>');
+                                htmlContent = htmlContent.replace(/<\/li><\/ul>/g, '</li>\n</ul>');
+                            }
+
+                            // 获取文件名（去掉扩展名）作为后备标题
                             const fileName = file.name.replace(/\.docx?$/i, '');
+                            // 尝试从 HTML 内容中提取第一个标签的文本作为标题
+                            let pageTitle = fileName; // 默认使用文件名
+                            try {
+                                const parser = new DOMParser();
+                                const doc = parser.parseFromString(htmlContent, 'text/html');
+                                // 查找第一个有文本内容的标签（优先查找 h1-h6，然后是 p）
+                                const firstHeading = doc.querySelector('h1, h2, h3, h4, h5, h6, p');
+                                if (firstHeading && firstHeading.textContent.trim()) {
+                                    pageTitle = firstHeading.textContent.trim();
+                                }
+                            } catch (e) {
+                                // 如果解析失败，使用文件名
+                                console.warn('无法解析 HTML 内容提取标题，使用文件名:', e);
+                            }
                             const fullHtmlContent = `
 <!DOCTYPE html>
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${fileName}</title>
+    <title>${pageTitle}</title>
     <style>
         * {
             margin: 0;
@@ -130,8 +311,13 @@
         ul, ol {
             margin: 10px 0 10px 20px;
         }
-        li {
+        ol {
+            list-style: none;
+            padding-left: 0;
+        }
+        ol li, ul li {
             margin-bottom: 5px;
+            display: list-item;
         }
         img {
             max-width: 100%;
