@@ -157,7 +157,7 @@ try {
     # 合并当前分支到 test
     Write-Host ""
     Write-Host "[调试] 即将合并: $CURRENT_BRANCH 到 test" -ForegroundColor Yellow
-    $mergeMessage = "Merge: 合并 $CURRENT_BRANCH 分支到 test"
+    $mergeMessage = "merge: 合并 $CURRENT_BRANCH 分支到 test"
     Write-Host "[调试] 合并命令: git merge $CURRENT_BRANCH --no-ff -m `"$mergeMessage`"" -ForegroundColor DarkGray
     Write-Host "正在合并 $CURRENT_BRANCH 到 test 分支..." -ForegroundColor Cyan
     Write-Host "[命令] git merge $CURRENT_BRANCH --no-ff -m `"$mergeMessage`"" -ForegroundColor DarkGray
