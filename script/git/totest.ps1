@@ -157,10 +157,11 @@ try {
     # 合并当前分支到 test
     Write-Host ""
     Write-Host "[调试] 即将合并: $CURRENT_BRANCH 到 test" -ForegroundColor Yellow
-    Write-Host "[调试] 合并命令: git merge $CURRENT_BRANCH --no-ff --no-edit" -ForegroundColor DarkGray
+    $mergeMessage = "🔀 merge(test): 合并 $CURRENT_BRANCH 分支到 test"
+    Write-Host "[调试] 合并命令: git merge $CURRENT_BRANCH --no-ff -m `"$mergeMessage`"" -ForegroundColor DarkGray
     Write-Host "正在合并 $CURRENT_BRANCH 到 test 分支..." -ForegroundColor Cyan
-    Write-Host "[命令] git merge $CURRENT_BRANCH --no-ff --no-edit" -ForegroundColor DarkGray
-    git merge $CURRENT_BRANCH --no-ff --no-edit
+    Write-Host "[命令] git merge $CURRENT_BRANCH --no-ff -m `"$mergeMessage`"" -ForegroundColor DarkGray
+    git merge $CURRENT_BRANCH --no-ff -m $mergeMessage
     if ($LASTEXITCODE -ne 0) {
         Write-Host "错误: 合并失败，可能存在冲突。请手动解决" -ForegroundColor Red
         Write-Host "使用 'git merge --abort' 可以取消合并" -ForegroundColor Yellow
