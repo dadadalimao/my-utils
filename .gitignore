@@ -22,3 +22,5 @@ yarn-debug.log*
 yarn-error.log*
 # 忽略合并脚本文件
 bat/totest.bat 
+临时
+192.168*
