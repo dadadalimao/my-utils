@@ -132,7 +132,8 @@ catch {
 # 合并远程分支到当前分支
 Write-Info "正在合并 $remoteBranch 到当前分支 $currentBranch..."
 try {
-    git merge "$remoteBranch" --no-ff --no-edit
+    $mergeMessage = "chore: 合并 $remoteBranch 到 $currentBranch"
+    git merge "$remoteBranch" --no-ff -m $mergeMessage
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "合并失败，可能存在冲突"
         Write-Info "请手动解决冲突后，使用以下命令完成合并:"
