@@ -113,6 +113,7 @@ catch {
 # 输入新分支名
 $newBranch = Read-Host "请输入新分支名称"
 $newBranch = $newBranch.Trim()
+Write-ColorOutput "[日志] 新分支名: '$newBranch' (长度 $($newBranch.Length))" "Gray"
 if ([string]::IsNullOrWhiteSpace($newBranch)) {
     Write-ScriptError "分支名称不能为空"
 }
@@ -123,16 +124,22 @@ if ($newBranch -match '\.\.|^\.|\.$|\.\.$|@\{|\\\\|\*\?\[\^~') {
     Write-ScriptError "分支名称包含非法字符"
 }
 
-# 检查本地是否已存在该分支
-if (git rev-parse --verify $newBranch 2>$null) {
+# 检查本地是否已存在该分支（用 branch --list 避免“不存在”时触发 git 的 fatal 输出）
+Write-ColorOutput "[日志] 步骤: 检查本地是否已存在分支 '$newBranch'" "Gray"
+$existing = git branch --list --no-color $newBranch 2>$null
+if ($existing) {
     Write-ScriptError "本地分支 '$newBranch' 已存在"
 }
+Write-ColorOutput "[日志] 本地无此分支，继续" "Gray"
 
-# 确保基准引用存在（避免 "Needed a single revision"：如 origin/HEAD 指向 main 但本地尚无 origin/main 时）
-$refValid = git rev-parse --verify $remoteRef 2>$null
-if (-not $refValid) {
+# 解析基准为 commit SHA（传 SHA 给 checkout -b 可避免 "Needed a single revision"）
+Write-ColorOutput "[日志] 步骤: 解析基准 ref='$remoteRef'" "Gray"
+$baseCommit = @(git rev-parse --verify $remoteRef 2>$null)[0]
+if (-not $baseCommit) {
     $altRef = if ($baseBranch -eq "main") { "${RemoteName}/master" } else { "${RemoteName}/main" }
-    if (git rev-parse --verify $altRef 2>$null) {
+    Write-ColorOutput "[日志] $remoteRef 无效，尝试 $altRef" "Gray"
+    $baseCommit = @(git rev-parse --verify $altRef 2>$null)[0]
+    if ($baseCommit) {
         Write-ColorOutput "信息: $remoteRef 不存在，改用 $altRef" "Cyan"
         $remoteRef = $altRef
     }
@@ -140,17 +147,22 @@ if (-not $refValid) {
         Write-ScriptError "远程引用 $remoteRef 不存在（已尝试 $remoteRef、$altRef）。请先执行: git fetch $RemoteName"
     }
 }
+$baseCommit = "$baseCommit".Trim()
+Write-ColorOutput "[日志] baseCommit='$baseCommit' (长度 $($baseCommit.Length))" "Gray"
 
-# 基于远程分支创建并切换到新分支
+# 基于该 commit 创建并切换到新分支
 Write-Info "正在创建并切换到分支: $newBranch (基于 $remoteRef)..."
+Write-ColorOutput "[日志] 步骤: 执行 git checkout -b '$newBranch' '$baseCommit'" "Gray"
 try {
-    git checkout -b $newBranch $remoteRef
+    git checkout -b $newBranch $baseCommit
+    Write-ColorOutput "[日志] checkout 已执行，LASTEXITCODE=$LASTEXITCODE" "Gray"
     if ($LASTEXITCODE -ne 0) {
         Write-ScriptError "创建分支失败"
     }
     Write-Success "已创建并切换到分支: $newBranch"
 }
 catch {
+    Write-ColorOutput "[日志] 错误发生在 checkout 步骤: $($_.Exception.Message)" "Red"
     Write-ScriptError "创建分支失败: $($_.Exception.Message)"
 }
 
