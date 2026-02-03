@@ -3,35 +3,6 @@
 
 $ErrorActionPreference = "Stop"
 
-# 脚本配置列表（固定排序）
-$scripts = @(
-    @{
-        Name = "pull.ps1"
-        Description = "拉取当前分支的最新代码"
-        Order = 1
-    },
-    @{
-        Name = "merge-main.ps1"
-        Description = "拉取远端 origin/main 分支最新代码并合并到当前分支"
-        Order = 2
-    },
-    @{
-        Name = "totest.ps1"
-        Description = "将当前分支合并到 test 分支并推送"
-        Order = 3
-    },
-    @{
-        Name = "tagTest.ps1"
-        Description = "创建 test/v1.0 前缀的标签（自动递增版本号）"
-        Order = 4
-    },
-    @{
-        Name = "tagWy.ps1"
-        Description = "创建 wy/v1.0 前缀的标签（自动递增版本号）"
-        Order = 5
-    }
-)
-
 # 脚本目录
 $scriptDir = Join-Path $PSScriptRoot "git"
 
@@ -41,18 +12,36 @@ if (-not (Test-Path $scriptDir)) {
     exit 1
 }
 
-# 显示菜单
+# 从 script/git 目录自动读取 .ps1 脚本列表，描述取自脚本内首行 "# 功能：xxx"
+function Get-ScriptList {
+    $files = Get-ChildItem -Path $scriptDir -Filter "*.ps1" -File | Sort-Object Name
+    $list = [System.Collections.ArrayList]::new()
+    $index = 1
+    foreach ($f in $files) {
+        $desc = "（无描述）"
+        $head = (Get-Content -Path $f.FullName -First 15 -ErrorAction SilentlyContinue) -join "`n"
+        if ($head -match '(?m)^#\s*功能[：:]\s*(.+)$') {
+            $desc = $Matches[1].Trim()
+        }
+        $null = $list.Add([PSCustomObject]@{
+            Order    = $index
+            Name     = $f.Name
+            Description = $desc
+        })
+        $index++
+    }
+    return $list
+}
+
+# 显示菜单（使用当前 $scripts 列表，描述来自各脚本内 "# 功能：xxx"）
 function Show-Menu {
     Write-Host ""
     Write-Host "===========================================" -ForegroundColor Cyan
     Write-Host "Git 脚本管理工具" -ForegroundColor Cyan
     Write-Host "===========================================" -ForegroundColor Cyan
     Write-Host ""
-    
-    # 按 Order 排序并显示
-    $sortedScripts = $scripts | Sort-Object Order
-    
-    foreach ($script in $sortedScripts) {
+
+    foreach ($script in $scripts) {
         $scriptPath = Join-Path $scriptDir $script.Name
         $exists = Test-Path $scriptPath
         $status = if ($exists) { "✓" } else { "✗" }
@@ -103,8 +92,9 @@ function Invoke-Script {
     }
 }
 
-# 主循环
+# 主循环（每次显示菜单前自动刷新脚本列表）
 while ($true) {
+    $scripts = Get-ScriptList
     Show-Menu
     
     Write-Host "请选择要执行的脚本 (输入数字): " -NoNewline -ForegroundColor Yellow
