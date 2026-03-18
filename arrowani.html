@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arrow Animation</title>
+    <style>
+        .arrow-container {
+            height: 1.5em;
+            overflow: hidden;
+        }
+
+        .arrow-track {
+            animation: scroll-down 2s linear infinite;
+        }
+
+        .arrow {
+            height: 1.5em;
+            line-height: 1.5em;
+            text-align: center;
+        }
+
+        @keyframes scroll-down {
+            0% {
+                transform: translateY(-50%);
+            }
+
+            100% {
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="arrow-container">
+        <div class="arrow-track">
+            <div class="arrow">↓</div>
+            <div class="arrow">↓</div>
+        </div>
+    </div>
+</body>
+
+</html>
