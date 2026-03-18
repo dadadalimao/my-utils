@@ -1,5 +1,11 @@
 # Git 合并脚本 - 调试模式
 # 功能：将当前分支合并到 test 分支并推送
+# 可选：检查当前分支是否已推送到远端，未推送则先推送（可通过 -SkipPushCurrent 跳过）
+
+param(
+    # 指定此参数时不检查/推送当前分支到远端，仅合并到 test
+    [switch]$SkipPushCurrent
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -55,6 +61,41 @@ try {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "错误: test 分支不存在" -ForegroundColor Red
         exit 1
+    }
+
+    # 可选：检查当前分支是否已推送到远端，未推送则先推送
+    if (-not $SkipPushCurrent) {
+        Write-Host "[调试] 正在检查当前分支是否已推送到远端..." -ForegroundColor Yellow
+        $remoteRef = "refs/remotes/$REMOTE_NAME/$CURRENT_BRANCH"
+        $remoteExists = $false
+        $null = git rev-parse $remoteRef 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $remoteExists = $true
+        }
+        $aheadCount = 0
+        if ($remoteExists) {
+            $aheadCountStr = git rev-list --count "$REMOTE_NAME/$CURRENT_BRANCH..HEAD" 2>&1
+            if ($LASTEXITCODE -eq 0 -and $aheadCountStr -match '^\d+$') {
+                $aheadCount = [int]$aheadCountStr
+            }
+        }
+        if (-not $remoteExists -or $aheadCount -gt 0) {
+            $reason = if (-not $remoteExists) { "远端尚无该分支" } else { "领先远端 $aheadCount 个提交" }
+            Write-Host "当前分支 $CURRENT_BRANCH 未完全推送到 $REMOTE_NAME ($reason)，正在推送..." -ForegroundColor Yellow
+            Write-Host "[命令] git push -u $REMOTE_NAME $CURRENT_BRANCH" -ForegroundColor DarkGray
+            git push -u $REMOTE_NAME $CURRENT_BRANCH
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "错误: 推送当前分支失败" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "已推送当前分支到 $REMOTE_NAME/$CURRENT_BRANCH" -ForegroundColor Green
+        }
+        else {
+            Write-Host "[调试] 当前分支已与远端同步，无需推送" -ForegroundColor Green
+        }
+    }
+    else {
+        Write-Host "[调试] 已跳过检查/推送当前分支 (SkipPushCurrent)" -ForegroundColor DarkGray
     }
 
     Write-Host ""
@@ -157,7 +198,7 @@ try {
     # 合并当前分支到 test
     Write-Host ""
     Write-Host "[调试] 即将合并: $CURRENT_BRANCH 到 test" -ForegroundColor Yellow
-    $mergeMessage = "Merge: 合并 $CURRENT_BRANCH 分支到 test"
+    $mergeMessage = "chore: 合并 $CURRENT_BRANCH 分支到 test"
     Write-Host "[调试] 合并命令: git merge $CURRENT_BRANCH --no-ff -m `"$mergeMessage`"" -ForegroundColor DarkGray
     Write-Host "正在合并 $CURRENT_BRANCH 到 test 分支..." -ForegroundColor Cyan
     Write-Host "[命令] git merge $CURRENT_BRANCH --no-ff -m `"$mergeMessage`"" -ForegroundColor DarkGray
