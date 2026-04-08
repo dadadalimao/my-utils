@@ -66,18 +66,29 @@ try {
     # 可选：检查当前分支是否已推送到远端，未推送则先推送
     if (-not $SkipPushCurrent) {
         Write-Host "[调试] 正在检查当前分支是否已推送到远端..." -ForegroundColor Yellow
-        $remoteRef = "refs/remotes/$REMOTE_NAME/$CURRENT_BRANCH"
         $remoteExists = $false
-        $null = git rev-parse $remoteRef 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $remoteExists = $true
-        }
+        $remoteTrackingRef = "refs/remotes/$REMOTE_NAME/$CURRENT_BRANCH"
         $aheadCount = 0
-        if ($remoteExists) {
-            $aheadCountStr = git rev-list --count "$REMOTE_NAME/$CURRENT_BRANCH..HEAD" 2>&1
-            if ($LASTEXITCODE -eq 0 -and $aheadCountStr -match '^\d+$') {
-                $aheadCount = [int]$aheadCountStr
+
+        # 在 PowerShell 的 $ErrorActionPreference=Stop 下，git rev-parse 失败可能会被当作致命错误。
+        # 这里改用 show-ref --verify --quiet，并在本段落内临时降级错误策略。
+        $prevErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $null = git show-ref --verify --quiet "$remoteTrackingRef" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $remoteExists = $true
             }
+
+            if ($remoteExists) {
+                $aheadCountStr = git rev-list --count "$REMOTE_NAME/$CURRENT_BRANCH..HEAD" 2>$null
+                if ($LASTEXITCODE -eq 0 -and $aheadCountStr -match '^\d+$') {
+                    $aheadCount = [int]$aheadCountStr
+                }
+            }
+        }
+        finally {
+            $ErrorActionPreference = $prevErrorActionPreference
         }
         if (-not $remoteExists -or $aheadCount -gt 0) {
             $reason = if (-not $remoteExists) { "远端尚无该分支" } else { "领先远端 $aheadCount 个提交" }
