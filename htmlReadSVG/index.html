@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>SVG Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 250px;
+            overflow-y: auto;
+            border-right: 1px solid #ccc;
+            background: #fff;
+            padding: 10px;
+        }
+
+        .file {
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+        }
+
+        .file:hover {
+            background: #eee;
+        }
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .toolbar {
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+            background: #fafafa;
+        }
+
+        .viewer {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .viewer svg {
+            max-width: 90%;
+            max-height: 90%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="sidebar" id="fileList"></div>
+
+    <div class="main">
+        <div class="toolbar">
+            背景色：
+            <input type="color" id="bgPicker" value="#f0f0f0" />
+        </div>
+        <div class="viewer" id="viewer"></div>
+    </div>
+
+    <script>
+        const fileListEl = document.getElementById("fileList");
+        const viewer = document.getElementById("viewer");
+        const bgPicker = document.getElementById("bgPicker");
+
+        // 背景色控制
+        bgPicker.addEventListener("input", (e) => {
+            document.body.style.background = e.target.value;
+        });
+
+        // 选择文件夹
+        async function pickFolder() {
+            try {
+                const dirHandle = await window.showDirectoryPicker();
+                await loadSVGs(dirHandle);
+            } catch (e) {
+                alert("需要选择文件夹才能读取 SVG");
+            }
+        }
+
+        async function loadSVGs(dirHandle) {
+            fileListEl.innerHTML = "";
+            viewer.innerHTML = "";
+            const svgEntries = [];
+
+            for await (const entry of dirHandle.values()) {
+                if (entry.kind === "file" && entry.name.endsWith(".svg")) {
+                    svgEntries.push(entry);
+
+                    const div = document.createElement("div");
+                    div.className = "file";
+                    div.textContent = entry.name;
+
+                    fileListEl.appendChild(div);
+                }
+            }
+
+            if (!svgEntries.length) {
+                viewer.textContent = "当前目录下未找到 SVG 文件";
+                return;
+            }
+
+            // 读取完目录后直接渲染全部 SVG
+            for (const entry of svgEntries) {
+                const file = await entry.getFile();
+                const text = await file.text();
+                const container = document.createElement("div");
+                container.innerHTML = text;
+                viewer.appendChild(container);
+            }
+        }
+
+        // 初始化提示
+        fileListEl.innerHTML = `
+      <button onclick="pickFolder()">选择SVG文件夹</button>
+      <p>请选择包含SVG的目录</p>
+    `;
+    </script>
+</body>
+
+</html>
