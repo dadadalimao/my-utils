@@ -1,35 +1,14 @@
 ﻿#!/usr/bin/env pwsh
-# Git标签自动创建脚本
-# 功能：获取远程最新的指定前缀标签，自动递增版本号并创建新标签
+# Git 标签交互式创建脚本
+# 功能：统一 test/wy 标签流程，自动递增补丁号并创建、推送新标签。
 
 param(
-    [string]$TagPrefix = "test/v1.0",
+    [string]$TagPrefix = "",
     [string]$RemoteName = "origin",
     [switch]$DryRun = $false,
     [switch]$Help = $false
 )
 
-# 显示帮助信息
-if ($Help) {
-    Write-Host "Git标签自动创建脚本" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "用法: .\create-tag-cn.ps1 [参数]" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "参数:" -ForegroundColor Yellow
-    Write-Host "  -TagPrefix <string>    标签前缀，默认为 'wy/v1.0' (将检查 wy/v1.0.x)" -ForegroundColor White
-    Write-Host "  -RemoteName <string>   远程仓库名称，默认为 'origin'" -ForegroundColor White
-    Write-Host "  -DryRun                仅显示将要执行的操作，不实际创建标签" -ForegroundColor White
-    Write-Host "  -Help                  显示此帮助信息" -ForegroundColor White
-    Write-Host ""
-    Write-Host "示例:" -ForegroundColor Yellow
-    Write-Host "  .\create-tag-cn.ps1                           # 使用默认参数 (wy/v1.0.x)" -ForegroundColor White
-    Write-Host "  .\create-tag-cn.ps1 -DryRun                   # 预览模式" -ForegroundColor White
-    Write-Host "  .\create-tag-cn.ps1 -TagPrefix 'wy/v2.0'      # 检查 wy/v2.0.x 标签" -ForegroundColor White
-    Write-Host "  .\create-tag-cn.ps1 -TagPrefix 'wy/v1.1'      # 检查 wy/v1.1.x 标签" -ForegroundColor White
-    exit 0
-}
-
-# 颜色输出函数
 function Write-ColorOutput {
     param(
         [string]$Message,
@@ -38,154 +17,207 @@ function Write-ColorOutput {
     Write-Host $Message -ForegroundColor $Color
 }
 
-# 错误处理函数
-function Write-Error {
+function Write-AppError {
     param([string]$Message)
     Write-ColorOutput "错误: $Message" "Red"
     exit 1
 }
 
-# 成功信息函数
-function Write-Success {
+function Write-AppSuccess {
     param([string]$Message)
     Write-ColorOutput "成功: $Message" "Green"
 }
 
-# 信息输出函数
-function Write-Info {
+function Write-AppInfo {
     param([string]$Message)
     Write-ColorOutput "信息: $Message" "Cyan"
 }
 
-# 警告信息函数
-function Write-Warning {
+function Write-AppWarning {
     param([string]$Message)
     Write-ColorOutput "警告: $Message" "Yellow"
+}
+
+function Show-Help {
+    Write-Host "Git 标签交互式创建脚本" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "用法: .\tagTest.ps1 [参数]" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "参数:" -ForegroundColor Yellow
+    Write-Host "  -TagPrefix <string>    指定标签前缀，例如 'test/v1.0' 或 'wy/v1.0'" -ForegroundColor White
+    Write-Host "  -RemoteName <string>   远程仓库名称，默认为 'origin'" -ForegroundColor White
+    Write-Host "  -DryRun                仅显示将要执行的操作，不实际创建标签" -ForegroundColor White
+    Write-Host "  -Help                  显示此帮助信息" -ForegroundColor White
+    Write-Host ""
+    Write-Host "说明:" -ForegroundColor Yellow
+    Write-Host "  未传入 -TagPrefix 时，将进入交互模式选择 test / wy / 自定义前缀" -ForegroundColor White
+    Write-Host ""
+    Write-Host "示例:" -ForegroundColor Yellow
+    Write-Host "  .\tagTest.ps1                          # 交互选择前缀" -ForegroundColor White
+    Write-Host "  .\tagTest.ps1 -DryRun                 # 交互模式预览" -ForegroundColor White
+    Write-Host "  .\tagTest.ps1 -TagPrefix 'wy/v1.0'    # 非交互模式，直接使用指定前缀" -ForegroundColor White
+}
+
+function Confirm-Action {
+    param(
+        [string]$Message,
+        [bool]$DefaultYes = $true
+    )
+
+    $suffix = if ($DefaultYes) { "(Y/n)" } else { "(y/N)" }
+    $response = Read-Host "$Message $suffix"
+    if ([string]::IsNullOrWhiteSpace($response)) {
+        return $DefaultYes
+    }
+
+    return ($response -eq "y" -or $response -eq "Y")
+}
+
+function Resolve-TagPrefix {
+    param([string]$InputPrefix)
+
+    if (-not [string]::IsNullOrWhiteSpace($InputPrefix)) {
+        return $InputPrefix.Trim()
+    }
+
+    Write-ColorOutput ""
+    Write-ColorOutput "请选择标签前缀类型:" "Yellow"
+    Write-ColorOutput "  [1] test/v1.0" "White"
+    Write-ColorOutput "  [2] wy/v1.0" "White"
+    Write-ColorOutput "  [3] 自定义前缀" "White"
+
+    while ($true) {
+        $choice = Read-Host "请输入选项 (1/2/3)"
+        switch ($choice) {
+            "1" { return "test/v1.0" }
+            "2" { return "wy/v1.0" }
+            "3" {
+                $customPrefix = Read-Host "请输入自定义前缀（示例: wy/v2.0）"
+                if (-not [string]::IsNullOrWhiteSpace($customPrefix)) {
+                    return $customPrefix.Trim()
+                }
+                Write-AppWarning "自定义前缀不能为空，请重新输入"
+            }
+            default {
+                Write-AppWarning "无效选项，请输入 1、2 或 3"
+            }
+        }
+    }
+}
+
+if ($Help) {
+    Show-Help
+    exit 0
 }
 
 Write-ColorOutput "Git标签自动创建脚本启动" "Green"
 Write-ColorOutput "=================================" "Green"
 
-# 检查是否在Git仓库中
+$TagPrefix = Resolve-TagPrefix -InputPrefix $TagPrefix
+Write-AppInfo "当前标签前缀: $TagPrefix"
+
 try {
-    $gitStatus = git rev-parse --is-inside-work-tree 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "当前目录不是Git仓库"
+    $insideWorkTree = git rev-parse --is-inside-work-tree 2>$null
+    if ($LASTEXITCODE -ne 0 -or $insideWorkTree -ne "true") {
+        Write-AppError "当前目录不是 Git 仓库"
     }
 } catch {
-    Write-Error "Git命令执行失败，请确保已安装Git"
+    Write-AppError "Git 命令执行失败，请确保已安装 Git"
 }
 
-# 获取远程标签
-Write-Info "正在获取远程标签，前缀: $TagPrefix"
+Write-AppInfo "正在获取远程标签，前缀: $TagPrefix"
 try {
-    # 获取远程标签，只获取匹配指定前缀模式的标签
-    # 模式: refs/tags/{TagPrefix}.{patch_number}
+    # 标签模式：{TagPrefix}.{patchNumber}
     $escapedPrefix = [regex]::Escape($TagPrefix)
     $remoteTags = git ls-remote --tags $RemoteName | Where-Object { $_ -match "refs/tags/$escapedPrefix\.(\d+)" }
 
     if (-not $remoteTags) {
-        Write-Warning "未找到匹配 '$TagPrefix.x' 格式的远程标签"
-        Write-Info "将创建第一个标签: $TagPrefix.1"
-        $newTag = $TagPrefix + ".1"
+        Write-AppWarning "未找到匹配 '$TagPrefix.x' 格式的远程标签"
+        $newTag = "$TagPrefix.1"
+        Write-AppInfo "将创建第一个标签: $newTag"
     } else {
-        # 解析所有匹配的标签并找到最新的补丁版本号
-        $latestPatch = 0
-        $latestTag = ""
-
+        $latestPatch = -1
         foreach ($tag in $remoteTags) {
             if ($tag -match "refs/tags/$escapedPrefix\.(\d+)") {
                 $patch = [int]$matches[1]
-
-                # 找到最高的补丁版本号
                 if ($patch -gt $latestPatch) {
                     $latestPatch = $patch
-                    $latestTag = $TagPrefix + "." + $patch
                 }
             }
         }
 
-        if ($latestTag) {
-            Write-Info "找到最新标签: $latestTag"
-
-            # 递增补丁版本号
-            $newPatch = $latestPatch + 1
-            $newTag = $TagPrefix + "." + $newPatch
-            Write-Info "新标签版本: $newTag"
-        } else {
-            Write-Error "无法解析远程标签版本号"
+        if ($latestPatch -lt 0) {
+            Write-AppError "无法解析远程标签版本号"
         }
+
+        $latestTag = "$TagPrefix.$latestPatch"
+        $newTag = "$TagPrefix.$($latestPatch + 1)"
+        Write-AppInfo "找到最新标签: $latestTag"
+        Write-AppInfo "新标签版本: $newTag"
     }
 } catch {
-    Write-Error "获取远程标签失败: $($_.Exception.Message)"
+    Write-AppError "获取远程标签失败: $($_.Exception.Message)"
 }
 
-# 检查本地是否已存在该标签
-Write-Info "检查本地标签..."
+Write-AppInfo "检查本地标签..."
 $localTagExists = git tag -l $newTag
 if ($localTagExists) {
-    Write-Warning "本地已存在标签: $newTag"
+    Write-AppWarning "本地已存在标签: $newTag"
     if (-not $DryRun) {
-        $response = Read-Host "是否删除本地标签并重新创建? (Y/n)"
-        if ($response -ne 'n' -and $response -ne 'N') {
-            git tag -d $newTag
-            Write-Info "已删除本地标签: $newTag"
+        $shouldDelete = Confirm-Action -Message "是否删除本地标签并重新创建?" -DefaultYes $true
+        if ($shouldDelete) {
+            git tag -d $newTag | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-AppError "删除本地标签失败: $newTag"
+            }
+            Write-AppInfo "已删除本地标签: $newTag"
         } else {
-            Write-Info "操作已取消"
+            Write-AppInfo "操作已取消"
             exit 0
         }
     }
 }
 
-# 检查工作区状态
-Write-Info "检查工作区状态..."
+Write-AppInfo "检查工作区状态..."
 $gitStatus = git status --porcelain
 if ($gitStatus) {
-    Write-Warning "工作区有未提交的更改:"
+    Write-AppWarning "工作区有未提交的更改:"
     Write-Host $gitStatus
     if (-not $DryRun) {
-        $response = Read-Host "是否继续创建标签? (Y/n)"
-        if ($response -eq 'n' -or $response -eq 'N') {
-            Write-Info "操作已取消"
+        $shouldContinue = Confirm-Action -Message "是否继续创建标签?" -DefaultYes $true
+        if (-not $shouldContinue) {
+            Write-AppInfo "操作已取消"
             exit 0
         }
     }
 }
 
-# 创建标签
 if ($DryRun) {
     Write-ColorOutput "预览模式 - 将要执行的操作:" "Yellow"
     Write-ColorOutput "   1. 创建标签: $newTag" "White"
     Write-ColorOutput "   2. 推送标签到远程仓库: $RemoteName" "White"
-    Write-ColorOutput "   3. 触发Drone CI/CD流水线" "White"
+    Write-ColorOutput "   3. 触发 Drone CI/CD 流水线" "White"
 } else {
-    Write-Info "正在创建标签: $newTag"
-
-    # 获取当前提交信息
+    Write-AppInfo "正在创建标签: $newTag"
     $commitHash = git rev-parse HEAD
     $commitMessage = git log -1 --pretty=format:"%s"
-
-    # 创建带注释的标签
     $tagMessage = "Release $newTag`n`nCommit: $commitHash`nMessage: $commitMessage"
+
     git tag -a $newTag -m $tagMessage
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "标签创建成功: $newTag"
-
-        # 推送标签到远程仓库
-        Write-Info "正在推送标签到远程仓库..."
-        git push $RemoteName $newTag
-
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "标签推送成功: $newTag"
-            Write-ColorOutput "新标签 $newTag 已成功创建并推送到远程仓库" "Green"
-            Write-ColorOutput "Drone CI/CD流水线将自动触发部署" "Green"
-        } else {
-            Write-Error "标签推送失败"
-        }
-    } else {
-        Write-Error "标签创建失败"
+    if ($LASTEXITCODE -ne 0) {
+        Write-AppError "标签创建失败"
     }
+    Write-AppSuccess "标签创建成功: $newTag"
+
+    Write-AppInfo "正在推送标签到远程仓库..."
+    git push $RemoteName $newTag
+    if ($LASTEXITCODE -ne 0) {
+        Write-AppError "标签推送失败"
+    }
+
+    Write-AppSuccess "标签推送成功: $newTag"
+    Write-ColorOutput "新标签 $newTag 已成功创建并推送到远程仓库" "Green"
+    Write-ColorOutput "Drone CI/CD 流水线将自动触发部署" "Green"
 }
 
 Write-ColorOutput "=================================" "Green"
