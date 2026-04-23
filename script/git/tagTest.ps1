@@ -50,12 +50,54 @@ function Show-Help {
     Write-Host "  -Help                  显示此帮助信息" -ForegroundColor White
     Write-Host ""
     Write-Host "说明:" -ForegroundColor Yellow
-    Write-Host "  未传入 -TagPrefix 时，将进入交互模式选择 test / wy / 自定义前缀" -ForegroundColor White
+    Write-Host "  未传入 -TagPrefix 时，将进入交互模式选择 test / wy / 无前缀(v1.0.x) / 自定义前缀" -ForegroundColor White
     Write-Host ""
     Write-Host "示例:" -ForegroundColor Yellow
     Write-Host "  .\tagTest.ps1                          # 交互选择前缀" -ForegroundColor White
     Write-Host "  .\tagTest.ps1 -DryRun                 # 交互模式预览" -ForegroundColor White
     Write-Host "  .\tagTest.ps1 -TagPrefix 'wy/v1.0'    # 非交互模式，直接使用指定前缀" -ForegroundColor White
+}
+
+function Convert-TagToPackageVersion {
+    param([string]$TagName)
+
+    $tagCore = if ($TagName -match "/") { $TagName.Split("/")[-1] } else { $TagName }
+    if ($tagCore -notmatch "^v(\d+\.\d+\.\d+)$") {
+        Write-AppError "标签格式 '$TagName' 无法转换为 package.json version，期望形如 v1.0.0"
+    }
+
+    return $matches[1]
+}
+
+function Update-PackageJsonVersion {
+    param(
+        [string]$RepoRoot,
+        [string]$Version
+    )
+
+    $packageJsonPath = Join-Path $RepoRoot "package.json"
+    if (-not (Test-Path $packageJsonPath)) {
+        Write-AppWarning "未找到根目录 package.json，跳过版本更新: $packageJsonPath"
+        return
+    }
+
+    try {
+        # ConvertTo-Json 会重排格式，这里只关心 version 字段更新，保持脚本行为可预期。
+        $packageJson = Get-Content -Path $packageJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $packageJson.PSObject.Properties.Name.Contains("version")) {
+            Write-AppWarning "package.json 不包含 version 字段，跳过版本更新: $packageJsonPath"
+            return
+        }
+
+        $packageJson.version = $Version
+        $updatedJson = $packageJson | ConvertTo-Json -Depth 100
+        Set-Content -Path $packageJsonPath -Value $updatedJson -Encoding UTF8
+    } catch {
+        Write-AppWarning "更新 package.json 版本失败，已跳过: $($_.Exception.Message)"
+        return
+    }
+
+    Write-AppSuccess "已更新 package.json version: $Version"
 }
 
 function Confirm-Action {
@@ -77,29 +119,54 @@ function Resolve-TagPrefix {
     param([string]$InputPrefix)
 
     if (-not [string]::IsNullOrWhiteSpace($InputPrefix)) {
-        return $InputPrefix.Trim()
+        $normalizedPrefix = $InputPrefix.Trim()
+        $isNoPrefixInput = ($normalizedPrefix -notmatch "/") -and ($normalizedPrefix -match "^v\d+\.\d+$")
+        return [PSCustomObject]@{
+            TagPrefix = $normalizedPrefix
+            IsNoPrefixMode = $isNoPrefixInput
+        }
     }
 
     Write-ColorOutput ""
     Write-ColorOutput "请选择标签前缀类型:" "Yellow"
     Write-ColorOutput "  [1] test/v1.0" "White"
     Write-ColorOutput "  [2] wy/v1.0" "White"
-    Write-ColorOutput "  [3] 自定义前缀" "White"
+    Write-ColorOutput "  [3] 无前缀（v1.0.x）" "White"
+    Write-ColorOutput "  [4] 自定义前缀" "White"
 
     while ($true) {
-        $choice = Read-Host "请输入选项 (1/2/3)"
+        $choice = Read-Host "请输入选项 (1/2/3/4)"
         switch ($choice) {
-            "1" { return "test/v1.0" }
-            "2" { return "wy/v1.0" }
+            "1" {
+                return [PSCustomObject]@{
+                    TagPrefix = "test/v1.0"
+                    IsNoPrefixMode = $false
+                }
+            }
+            "2" {
+                return [PSCustomObject]@{
+                    TagPrefix = "wy/v1.0"
+                    IsNoPrefixMode = $false
+                }
+            }
             "3" {
+                return [PSCustomObject]@{
+                    TagPrefix = "v1.0"
+                    IsNoPrefixMode = $true
+                }
+            }
+            "4" {
                 $customPrefix = Read-Host "请输入自定义前缀（示例: wy/v2.0）"
                 if (-not [string]::IsNullOrWhiteSpace($customPrefix)) {
-                    return $customPrefix.Trim()
+                    return [PSCustomObject]@{
+                        TagPrefix = $customPrefix.Trim()
+                        IsNoPrefixMode = $false
+                    }
                 }
                 Write-AppWarning "自定义前缀不能为空，请重新输入"
             }
             default {
-                Write-AppWarning "无效选项，请输入 1、2 或 3"
+                Write-AppWarning "无效选项，请输入 1、2、3 或 4"
             }
         }
     }
@@ -113,8 +180,15 @@ if ($Help) {
 Write-ColorOutput "Git标签自动创建脚本启动" "Green"
 Write-ColorOutput "=================================" "Green"
 
-$TagPrefix = Resolve-TagPrefix -InputPrefix $TagPrefix
+$resolvedPrefix = Resolve-TagPrefix -InputPrefix $TagPrefix
+$TagPrefix = $resolvedPrefix.TagPrefix
+$isNoPrefixMode = $resolvedPrefix.IsNoPrefixMode
 Write-AppInfo "当前标签前缀: $TagPrefix"
+
+$repoRoot = git rev-parse --show-toplevel 2>$null
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoRoot)) {
+    Write-AppError "无法解析仓库根目录"
+}
 
 try {
     $insideWorkTree = git rev-parse --is-inside-work-tree 2>$null
@@ -129,16 +203,31 @@ Write-AppInfo "正在获取远程标签，前缀: $TagPrefix"
 try {
     # 标签模式：{TagPrefix}.{patchNumber}
     $escapedPrefix = [regex]::Escape($TagPrefix)
-    $remoteTags = git ls-remote --tags $RemoteName | Where-Object { $_ -match "refs/tags/$escapedPrefix\.(\d+)" }
+    $tagPattern = "(?:refs/tags/)?$escapedPrefix\.(\d+)$"
+    $tagSource = "远程"
 
-    if (-not $remoteTags) {
-        Write-AppWarning "未找到匹配 '$TagPrefix.x' 格式的远程标签"
-        $newTag = "$TagPrefix.1"
+    $remoteTagLines = git ls-remote --tags $RemoteName 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $matchedTags = $remoteTagLines | Where-Object { $_ -match $tagPattern }
+    } else {
+        Write-AppWarning "远程标签读取失败（网络/证书异常），将回退使用本地标签"
+        $tagSource = "本地"
+        $localTagLines = git tag -l
+        if ($LASTEXITCODE -ne 0) {
+            Write-AppError "获取本地标签失败"
+        }
+        $matchedTags = $localTagLines | Where-Object { $_ -match $tagPattern }
+    }
+
+    if (-not $matchedTags) {
+        Write-AppWarning "未找到匹配 '$TagPrefix.x' 格式的$tagSource标签"
+        $initialPatch = if ($isNoPrefixMode) { 0 } else { 1 }
+        $newTag = "$TagPrefix.$initialPatch"
         Write-AppInfo "将创建第一个标签: $newTag"
     } else {
         $latestPatch = -1
-        foreach ($tag in $remoteTags) {
-            if ($tag -match "refs/tags/$escapedPrefix\.(\d+)") {
+        foreach ($tag in $matchedTags) {
+            if ($tag -match $tagPattern) {
                 $patch = [int]$matches[1]
                 if ($patch -gt $latestPatch) {
                     $latestPatch = $patch
@@ -147,12 +236,12 @@ try {
         }
 
         if ($latestPatch -lt 0) {
-            Write-AppError "无法解析远程标签版本号"
+            Write-AppError "无法解析$tagSource标签版本号"
         }
 
         $latestTag = "$TagPrefix.$latestPatch"
         $newTag = "$TagPrefix.$($latestPatch + 1)"
-        Write-AppInfo "找到最新标签: $latestTag"
+        Write-AppInfo "找到最新${tagSource}标签: $latestTag"
         Write-AppInfo "新标签版本: $newTag"
     }
 } catch {
@@ -195,9 +284,22 @@ if ($gitStatus) {
 if ($DryRun) {
     Write-ColorOutput "预览模式 - 将要执行的操作:" "Yellow"
     Write-ColorOutput "   1. 创建标签: $newTag" "White"
-    Write-ColorOutput "   2. 推送标签到远程仓库: $RemoteName" "White"
-    Write-ColorOutput "   3. 触发 Drone CI/CD 流水线" "White"
+    if ($isNoPrefixMode) {
+        $packageVersion = Convert-TagToPackageVersion -TagName $newTag
+        Write-ColorOutput "   2. 更新根目录 package.json version: $packageVersion" "White"
+        Write-ColorOutput "   3. 推送标签到远程仓库: $RemoteName" "White"
+        Write-ColorOutput "   4. 触发 Drone CI/CD 流水线" "White"
+    } else {
+        Write-ColorOutput "   2. 推送标签到远程仓库: $RemoteName" "White"
+        Write-ColorOutput "   3. 触发 Drone CI/CD 流水线" "White"
+    }
 } else {
+    if ($isNoPrefixMode) {
+        $packageVersion = Convert-TagToPackageVersion -TagName $newTag
+        Write-AppInfo "正在更新根目录 package.json version: $packageVersion"
+        Update-PackageJsonVersion -RepoRoot $repoRoot -Version $packageVersion
+    }
+
     Write-AppInfo "正在创建标签: $newTag"
     $commitHash = git rev-parse HEAD
     $commitMessage = git log -1 --pretty=format:"%s"
