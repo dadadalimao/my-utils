@@ -58,48 +58,6 @@ function Show-Help {
     Write-Host "  .\tagTest.ps1 -TagPrefix 'wy/v1.0'    # 非交互模式，直接使用指定前缀" -ForegroundColor White
 }
 
-function Convert-TagToPackageVersion {
-    param([string]$TagName)
-
-    $tagCore = if ($TagName -match "/") { $TagName.Split("/")[-1] } else { $TagName }
-    if ($tagCore -notmatch "^v(\d+\.\d+\.\d+)$") {
-        Write-AppError "标签格式 '$TagName' 无法转换为 package.json version，期望形如 v1.0.0"
-    }
-
-    return $matches[1]
-}
-
-function Update-PackageJsonVersion {
-    param(
-        [string]$RepoRoot,
-        [string]$Version
-    )
-
-    $packageJsonPath = Join-Path $RepoRoot "package.json"
-    if (-not (Test-Path $packageJsonPath)) {
-        Write-AppWarning "未找到根目录 package.json，跳过版本更新: $packageJsonPath"
-        return
-    }
-
-    try {
-        # ConvertTo-Json 会重排格式，这里只关心 version 字段更新，保持脚本行为可预期。
-        $packageJson = Get-Content -Path $packageJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if (-not $packageJson.PSObject.Properties.Name.Contains("version")) {
-            Write-AppWarning "package.json 不包含 version 字段，跳过版本更新: $packageJsonPath"
-            return
-        }
-
-        $packageJson.version = $Version
-        $updatedJson = $packageJson | ConvertTo-Json -Depth 100
-        Set-Content -Path $packageJsonPath -Value $updatedJson -Encoding UTF8
-    } catch {
-        Write-AppWarning "更新 package.json 版本失败，已跳过: $($_.Exception.Message)"
-        return
-    }
-
-    Write-AppSuccess "已更新 package.json version: $Version"
-}
-
 function Confirm-Action {
     param(
         [string]$Message,
@@ -113,6 +71,31 @@ function Confirm-Action {
     }
 
     return ($response -eq "y" -or $response -eq "Y")
+}
+
+function Assert-HeadPushedToRemote {
+    param([string]$RemoteName)
+
+    $headCommit = git rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($headCommit)) {
+        Write-AppError "无法获取当前提交信息"
+    }
+
+    $upstreamRef = git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($upstreamRef)) {
+        Write-AppError "当前分支未配置上游分支，无法确认提交是否已推送到远端"
+    }
+
+    if (-not $upstreamRef.StartsWith("$RemoteName/")) {
+        Write-AppError "当前分支上游为 '$upstreamRef'，与指定远程 '$RemoteName' 不一致"
+    }
+
+    git merge-base --is-ancestor HEAD $upstreamRef 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-AppError "当前提交尚未推送到远端分支 '$upstreamRef'，请先 push 后再创建标签"
+    }
+
+    Write-AppInfo "已确认当前提交已推送到远端分支: $upstreamRef"
 }
 
 function Resolve-TagPrefix {
@@ -184,11 +167,6 @@ $resolvedPrefix = Resolve-TagPrefix -InputPrefix $TagPrefix
 $TagPrefix = $resolvedPrefix.TagPrefix
 $isNoPrefixMode = $resolvedPrefix.IsNoPrefixMode
 Write-AppInfo "当前标签前缀: $TagPrefix"
-
-$repoRoot = git rev-parse --show-toplevel 2>$null
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoRoot)) {
-    Write-AppError "无法解析仓库根目录"
-}
 
 try {
     $insideWorkTree = git rev-parse --is-inside-work-tree 2>$null
@@ -284,26 +262,30 @@ if ($gitStatus) {
 if ($DryRun) {
     Write-ColorOutput "预览模式 - 将要执行的操作:" "Yellow"
     Write-ColorOutput "   1. 创建标签: $newTag" "White"
-    if ($isNoPrefixMode) {
-        $packageVersion = Convert-TagToPackageVersion -TagName $newTag
-        Write-ColorOutput "   2. 更新根目录 package.json version: $packageVersion" "White"
-        Write-ColorOutput "   3. 推送标签到远程仓库: $RemoteName" "White"
-        Write-ColorOutput "   4. 触发 Drone CI/CD 流水线" "White"
-    } else {
-        Write-ColorOutput "   2. 推送标签到远程仓库: $RemoteName" "White"
-        Write-ColorOutput "   3. 触发 Drone CI/CD 流水线" "White"
-    }
+    Write-ColorOutput "   2. 确认标签内容并创建注释标签" "White"
+    Write-ColorOutput "   3. 推送标签到远程仓库: $RemoteName" "White"
+    Write-ColorOutput "   4. 触发 Drone CI/CD 流水线" "White"
 } else {
-    if ($isNoPrefixMode) {
-        $packageVersion = Convert-TagToPackageVersion -TagName $newTag
-        Write-AppInfo "正在更新根目录 package.json version: $packageVersion"
-        Update-PackageJsonVersion -RepoRoot $repoRoot -Version $packageVersion
-    }
+    Write-AppInfo "检查当前提交是否已推送到远端..."
+    Assert-HeadPushedToRemote -RemoteName $RemoteName
 
-    Write-AppInfo "正在创建标签: $newTag"
     $commitHash = git rev-parse HEAD
     $commitMessage = git log -1 --pretty=format:"%s"
     $tagMessage = "Release $newTag`n`nCommit: $commitHash`nMessage: $commitMessage"
+
+    Write-AppInfo "即将创建以下标签内容:"
+    Write-Host "Tag: $newTag" -ForegroundColor White
+    Write-Host "Target Commit: $commitHash" -ForegroundColor White
+    Write-Host "Tag Message:" -ForegroundColor White
+    Write-Host $tagMessage -ForegroundColor White
+
+    $shouldCreateTag = Confirm-Action -Message "确认按以上内容创建标签?" -DefaultYes $true
+    if (-not $shouldCreateTag) {
+        Write-AppInfo "操作已取消"
+        exit 0
+    }
+
+    Write-AppInfo "正在创建标签: $newTag"
 
     git tag -a $newTag -m $tagMessage
     if ($LASTEXITCODE -ne 0) {

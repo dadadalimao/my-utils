@@ -18,6 +18,68 @@ Write-Host ""
 # 标记是否使用了 stash
 $hasStashed = $false
 
+function Test-MergeInProgress {
+    $null = git rev-parse -q --verify MERGE_HEAD 2>$null
+    return $LASTEXITCODE -eq 0
+}
+
+function Get-MergeConflictFiles {
+    $conflictFiles = git diff --name-only --diff-filter=U
+    if (-not $conflictFiles) {
+        return @()
+    }
+    return @($conflictFiles)
+}
+
+function Invoke-MergeWithFallbackCommit {
+    param(
+        [string]$SourceBranch,
+        [string]$TargetBranch
+    )
+
+    # 提交信息按优先级回退：Merge -> chore -> feat。
+    # 适配 commit-msg 钩子对 type 前缀的强校验。
+    $mergeMessages = @(
+        "Merge: 合并 $SourceBranch 分支到 $TargetBranch",
+        "chore: 合并 $SourceBranch 分支到 $TargetBranch",
+        "feat: 合并 $SourceBranch 分支到 $TargetBranch"
+    )
+
+    Write-Host "[调试] 合并命令: git merge $SourceBranch --no-ff -m `"$($mergeMessages[0])`"" -ForegroundColor DarkGray
+    Write-Host "正在合并 $SourceBranch 到 $TargetBranch 分支..." -ForegroundColor Cyan
+    Write-Host "[命令] git merge $SourceBranch --no-ff -m `"$($mergeMessages[0])`"" -ForegroundColor DarkGray
+    git merge $SourceBranch --no-ff -m $mergeMessages[0]
+    if ($LASTEXITCODE -eq 0) {
+        return $true
+    }
+
+    if (-not (Test-MergeInProgress)) {
+        return $false
+    }
+
+    $conflictFiles = Get-MergeConflictFiles
+    if ($conflictFiles.Count -gt 0) {
+        Write-Host "错误: 合并失败，存在冲突文件，请先手动解决" -ForegroundColor Red
+        foreach ($conflictFile in $conflictFiles) {
+            Write-Host "  - $conflictFile" -ForegroundColor Yellow
+        }
+        return $false
+    }
+
+    Write-Host "检测到合并已写入暂存区但提交被拒绝，尝试回退提交类型..." -ForegroundColor Yellow
+    for ($i = 1; $i -lt $mergeMessages.Count; $i++) {
+        $retryMessage = $mergeMessages[$i]
+        Write-Host "[命令] git commit -m `"$retryMessage`"" -ForegroundColor DarkGray
+        git commit -m $retryMessage
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "提交信息回退成功: $retryMessage" -ForegroundColor Green
+            return $true
+        }
+    }
+
+    return $false
+}
+
 try {
     # 获取当前分支
     Write-Host "[调试] 正在获取当前分支..." -ForegroundColor Yellow
@@ -209,12 +271,7 @@ try {
     # 合并当前分支到 test
     Write-Host ""
     Write-Host "[调试] 即将合并: $CURRENT_BRANCH 到 test" -ForegroundColor Yellow
-    $mergeMessage = "chore: 合并 $CURRENT_BRANCH 分支到 test"
-    Write-Host "[调试] 合并命令: git merge $CURRENT_BRANCH --no-ff -m `"$mergeMessage`"" -ForegroundColor DarkGray
-    Write-Host "正在合并 $CURRENT_BRANCH 到 test 分支..." -ForegroundColor Cyan
-    Write-Host "[命令] git merge $CURRENT_BRANCH --no-ff -m `"$mergeMessage`"" -ForegroundColor DarkGray
-    git merge $CURRENT_BRANCH --no-ff -m $mergeMessage
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Invoke-MergeWithFallbackCommit -SourceBranch $CURRENT_BRANCH -TargetBranch "test")) {
         Write-Host "错误: 合并失败，可能存在冲突。请手动解决" -ForegroundColor Red
         Write-Host "使用 'git merge --abort' 可以取消合并" -ForegroundColor Yellow
         Write-Host "[调试] 正在返回 $CURRENT_BRANCH 分支..." -ForegroundColor Yellow
