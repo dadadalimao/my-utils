@@ -59,6 +59,63 @@ function Write-Warning {
     Write-ColorOutput "警告: $Message" "Yellow"
 }
 
+function Test-MergeInProgress {
+    $null = git rev-parse -q --verify MERGE_HEAD 2>$null
+    return $LASTEXITCODE -eq 0
+}
+
+function Get-MergeConflictFiles {
+    $conflictFiles = git diff --name-only --diff-filter=U
+    if (-not $conflictFiles) {
+        return @()
+    }
+    return @($conflictFiles)
+}
+
+function Invoke-MergeWithFallbackCommit {
+    param(
+        [string]$SourceBranch,
+        [string]$TargetBranch
+    )
+
+    # 提交信息按优先级回退：Merge -> chore -> feat。
+    # 适配 commit-msg 钩子对 type 前缀的强校验。
+    $mergeMessages = @(
+        "Merge: 合并 $SourceBranch 到 $TargetBranch",
+        "chore: 合并 $SourceBranch 到 $TargetBranch",
+        "feat: 合并 $SourceBranch 到 $TargetBranch"
+    )
+
+    git merge "$SourceBranch" --no-ff -m $mergeMessages[0]
+    if ($LASTEXITCODE -eq 0) {
+        return $true
+    }
+
+    if (-not (Test-MergeInProgress)) {
+        return $false
+    }
+
+    $conflictFiles = Get-MergeConflictFiles
+    if ($conflictFiles.Count -gt 0) {
+        Write-Warning "检测到合并冲突，请先手动解决冲突文件:"
+        foreach ($conflictFile in $conflictFiles) {
+            Write-ColorOutput "  - $conflictFile" "Yellow"
+        }
+        return $false
+    }
+
+    Write-Warning "检测到合并提交被钩子拒绝，正在尝试回退提交类型..."
+    for ($i = 1; $i -lt $mergeMessages.Count; $i++) {
+        git commit -m $mergeMessages[$i]
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "提交信息回退成功: $($mergeMessages[$i])"
+            return $true
+        }
+    }
+
+    return $false
+}
+
 Write-ColorOutput "Git合并脚本启动" "Green"
 Write-ColorOutput "=================================" "Green"
 
@@ -132,9 +189,7 @@ catch {
 # 合并远程分支到当前分支
 Write-Info "正在合并 $remoteBranch 到当前分支 $currentBranch..."
 try {
-    $mergeMessage = "chore: 合并 $remoteBranch 到 $currentBranch"
-    git merge "$remoteBranch" --no-ff -m $mergeMessage
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Invoke-MergeWithFallbackCommit -SourceBranch $remoteBranch -TargetBranch $currentBranch)) {
         Write-Warning "合并失败，可能存在冲突"
         Write-Info "请手动解决冲突后，使用以下命令完成合并:"
         Write-ColorOutput "  git add ." "Yellow"
