@@ -162,11 +162,15 @@ function Invoke-GitProxyInteractive {
         Write-Host ""
         Write-Host "请选择操作:" -ForegroundColor Yellow
         Write-Host "  [1] 设为默认端口 7897" -ForegroundColor White
-        Write-Host "  [2] 指定其他端口 (1-65535)" -ForegroundColor White
-        Write-Host "  [3] 取消代理" -ForegroundColor White
-        Write-Host "  [0] 退出" -ForegroundColor White
+        Write-Host "  [2] 设为端口 7892" -ForegroundColor White
+        Write-Host "  [3] 指定其他端口 (1-65535)" -ForegroundColor White
+        Write-Host "  [4] 取消代理" -ForegroundColor White
+        Write-Host "  [0] 退出（默认）" -ForegroundColor White
         Write-Host ""
-        $choice = (Read-Host "请输入数字").Trim()
+        $choice = (Read-Host "请输入数字（默认 0）").Trim()
+        if ([string]::IsNullOrWhiteSpace($choice)) {
+            $choice = "0"
+        }
 
         try {
             switch ($choice) {
@@ -181,6 +185,12 @@ function Invoke-GitProxyInteractive {
                     Show-GitProxyCurrent
                 }
                 "2" {
+                    Write-Host "正在设置全局代理为 http://${ProxyHost}:7892 ..." -ForegroundColor Yellow
+                    Set-GitProxy -Port 7892
+                    Write-Host "已设置: http.proxy 与 https.proxy -> http://${ProxyHost}:7892" -ForegroundColor Green
+                    Show-GitProxyCurrent
+                }
+                "3" {
                     $raw = Read-Host "请输入端口号 (1-65535)"
                     $raw = if ($null -ne $raw) { $raw.Trim() } else { "" }
                     if ($raw -notmatch '^\d+$') {
@@ -199,14 +209,14 @@ function Invoke-GitProxyInteractive {
                         }
                     }
                 }
-                "3" {
+                "4" {
                     Write-Host "正在取消全局 http.proxy / https.proxy ..." -ForegroundColor Yellow
                     Remove-GitProxy
                     Write-Host "已取消 Git 代理配置。" -ForegroundColor Green
                     Show-GitProxyCurrent
                 }
                 default {
-                    Write-Host "无效选项，请输入 0-3。" -ForegroundColor Red
+                    Write-Host "无效选项，请输入 0-4。" -ForegroundColor Red
                 }
             }
         }
