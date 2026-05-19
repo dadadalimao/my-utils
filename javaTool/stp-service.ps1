@@ -65,6 +65,13 @@ if ($Restart) {
 $procRef = [ref]$null
 $useConsole = -not $LogFile
 
+# 终端模式：固定窗口标题 + session，供 GUI 按标题 WM_CLOSE / 杀进程
+if ($useConsole -and $Module) {
+    $Host.UI.RawUI.WindowTitle = Get-StpTerminalWindowTitle -ModuleName $Module
+    $termKind = if ($env:WT_SESSION) { 'wt' } else { 'console' }
+    Save-StpSession -ModuleName $Module -ShellPid $PID -Kind $termKind
+}
+
 try {
     $proc = Invoke-StpStart -ModuleName $Module -ProjectRoot $ProjectRoot -Profile $Profile `
         -Force:$Force -SkipBuild:$SkipBuild -BuildOnly:$BuildOnly `
@@ -98,3 +105,4 @@ catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1
 }
+# session 保留至 GUI 关闭终端或再次启动覆盖（-NoExit 时脚本结束窗口仍在）

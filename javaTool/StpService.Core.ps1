@@ -41,6 +41,177 @@ function Set-StpSavedProjectRoot {
     @{ projectRoot = $ProjectRoot } | ConvertTo-Json | Set-Content (Get-StpConfigFile) -Encoding UTF8
 }
 
+# ---------------------------------------------------------------------------
+# 终端 session（GUI 方案 A：记录日志终端 PID，停止/重启时关闭旧窗口）
+# ---------------------------------------------------------------------------
+
+function Get-StpTerminalWindowTitle {
+    param([string] $ModuleName)
+    "STP-GUI-$ModuleName"
+}
+
+function Initialize-StpWinCloseType {
+    if ('StpWinClose' -as [type]) { return }
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class StpWinClose {
+    public static string Target = "";
+    public static int Closed = 0;
+    public const uint WM_CLOSE = 0x0010;
+    public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc lpEnum, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int count);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr w, IntPtr l);
+    private static bool Callback(IntPtr hWnd, IntPtr lParam) {
+        if (!IsWindowVisible(hWnd)) return true;
+        var sb = new StringBuilder(512);
+        GetWindowText(hWnd, sb, 512);
+        if (sb.ToString().IndexOf(Target, StringComparison.OrdinalIgnoreCase) >= 0) {
+            PostMessage(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            Closed++;
+        }
+        return true;
+    }
+    public static void CloseMatching(string target) {
+        Target = target ?? "";
+        Closed = 0;
+        EnumWindows(Callback, IntPtr.Zero);
+    }
+}
+'@
+}
+
+# 向匹配标题的窗口发送 WM_CLOSE（适用于独立控制台；WT 标题栏含标签名时亦有效）
+function Close-StpWindowsByTitleMarker {
+    param([string] $Marker)
+    if (-not $Marker) { return $false }
+    Initialize-StpWinCloseType
+    [StpWinClose]::CloseMatching($Marker)
+    return [StpWinClose]::Closed -gt 0
+}
+
+# 独立控制台启动（cmd start 设置窗口标题，停止时可 WM_CLOSE）
+function Start-StpLogTerminal {
+    param(
+        [string] $ModuleName,
+        [string] $PsExe,
+        [string[]] $PsArgs
+    )
+    $title = Get-StpTerminalWindowTitle -ModuleName $ModuleName
+    $argParts = foreach ($a in $PsArgs) {
+        if ($null -eq $a -or $a -eq '') { continue }
+        if ($a -match '\s|"') { '"' + ($a -replace '"', '\"') + '"' } else { $a }
+    }
+    $argLine = $argParts -join ' '
+    $cmdLine = "start `"$title`" `"$PsExe`" $argLine"
+    Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $cmdLine) -WindowStyle Hidden -WorkingDirectory $PSScriptRoot | Out-Null
+    return '控制台'
+}
+
+function Get-StpSessionDir {
+    $dir = Join-Path $PSScriptRoot 'sessions'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $dir
+}
+
+function Get-StpSessionPath {
+    param([string] $ModuleName)
+    Join-Path (Get-StpSessionDir) "$ModuleName.session.json"
+}
+
+function Save-StpSession {
+    param(
+        [string] $ModuleName,
+        [int] $ShellPid,
+        [string] $Kind = 'powershell'
+    )
+    @{
+        module      = $ModuleName
+        shellPid    = $ShellPid
+        kind        = $Kind
+        windowTitle = (Get-StpTerminalWindowTitle -ModuleName $ModuleName)
+        startedAt   = (Get-Date).ToString('o')
+    } | ConvertTo-Json | Set-Content (Get-StpSessionPath -ModuleName $ModuleName) -Encoding UTF8
+}
+
+function Get-StpSession {
+    param([string] $ModuleName)
+    $path = Get-StpSessionPath -ModuleName $ModuleName
+    if (-not (Test-Path $path)) { return $null }
+    try { return Get-Content $path -Raw -Encoding UTF8 | ConvertFrom-Json }
+    catch { return $null }
+}
+
+function Remove-StpSession {
+    param([string] $ModuleName)
+    $path = Get-StpSessionPath -ModuleName $ModuleName
+    if (Test-Path $path) { Remove-Item $path -Force -ErrorAction SilentlyContinue }
+}
+
+function Test-StpSessionAlive {
+    param([string] $ModuleName)
+    $s = Get-StpSession -ModuleName $ModuleName
+    if (-not $s -or -not $s.shellPid) { return $false }
+    return $null -ne (Get-Process -Id ([int]$s.shellPid) -ErrorAction SilentlyContinue)
+}
+
+# 按 session 或命令行匹配 stp-service.ps1 的终端进程 PID
+function Get-StpTerminalPids {
+    param([string] $ModuleName)
+
+    $pids = [System.Collections.Generic.List[int]]::new()
+    $s = Get-StpSession -ModuleName $ModuleName
+    if ($s -and $s.shellPid) { $pids.Add([int]$s.shellPid) }
+
+    $names = @('powershell.exe', 'pwsh.exe')
+    foreach ($name in $names) {
+        Get-CimInstance Win32_Process -Filter "Name='$name'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $cmd = $_.CommandLine
+                $cmd -and $cmd -like '*stp-service.ps1*' -and $cmd -like "*-Module*$ModuleName*"
+            } |
+            ForEach-Object { $pids.Add($_.ProcessId) }
+    }
+    $pids | Select-Object -Unique
+}
+
+# 关闭该模块对应的日志终端窗口，并清除 session
+function Close-StpTerminalSession {
+    param([string] $ModuleName)
+
+    $title = Get-StpTerminalWindowTitle -ModuleName $ModuleName
+    $closed = $false
+
+    if (Close-StpWindowsByTitleMarker -Marker $title) { $closed = $true }
+
+    foreach ($shellPid in @(Get-StpTerminalPids -ModuleName $ModuleName)) {
+        if (-not (Get-Process -Id $shellPid -ErrorAction SilentlyContinue)) { continue }
+        & taskkill.exe /PID $shellPid /T /F 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $closed = $true }
+        else {
+            try {
+                Stop-Process -Id $shellPid -Force -ErrorAction SilentlyContinue
+                $closed = $true
+            }
+            catch { }
+        }
+    }
+
+    Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle -like "*$title*" } |
+        ForEach-Object {
+            & taskkill.exe /PID $_.Id /T /F 2>$null | Out-Null
+            $closed = $true
+        }
+
+    Start-Sleep -Milliseconds 300
+    Remove-StpSession -ModuleName $ModuleName
+    return $closed
+}
+
 function Get-StpJavaExe {
     if ($env:JAVA_HOME) {
         $javaExe = Join-Path $env:JAVA_HOME 'bin\java.exe'

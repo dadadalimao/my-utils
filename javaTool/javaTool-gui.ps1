@@ -30,8 +30,9 @@ function Get-UiParams {
 
     try { Set-StpSavedProjectRoot -ProjectRoot $root } catch { }
 
+    # 不用 -NoExit：服务/脚本结束后终端可自动退出；停止时由 Close-StpTerminalSession 强杀
     $args = @(
-        '-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-NoProfile', '-ExecutionPolicy', 'Bypass',
         '-File', $script:ServiceScript,
         '-Module', $mod,
         '-ProjectRoot', $root
@@ -45,18 +46,38 @@ function Get-UiParams {
     return @{ Module = $mod; Root = $root; Args = $args }
 }
 
-function Open-Terminal {
-    param([string[]] $PsArgs)
+function Invoke-StpStopHidden {
+    param($UiParams)
 
-    # 优先 Windows Terminal，否则系统 PowerShell 窗口
-    $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
-    if ($wt) {
-        Start-Process -FilePath $wt.Source -ArgumentList (@('powershell') + $PsArgs)
-        return 'Windows Terminal'
+    $stopArgs = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-File', $script:ServiceScript,
+        '-Module', $UiParams.Module,
+        '-ProjectRoot', $UiParams.Root,
+        '-Stop'
+    )
+    return Start-Process -FilePath $script:PsExe -ArgumentList $stopArgs -Wait -PassThru -WindowStyle Hidden
+}
+
+function Open-Terminal {
+    param(
+        [string[]] $PsArgs,
+        [string] $ModuleName
+    )
+
+    Close-StpTerminalSession -ModuleName $ModuleName | Out-Null
+
+    # 默认独立控制台（标题 STP-GUI-*，停止可关窗）；WT 杀子进程后标签常残留
+    if ($script:ChkUseWt.Checked) {
+        $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
+        if ($wt) {
+            $title = Get-StpTerminalWindowTitle -ModuleName $ModuleName
+            Start-Process -FilePath $wt.Source -ArgumentList (@('new-tab', '--title', $title, 'powershell') + $PsArgs)
+            return 'Windows Terminal'
+        }
     }
 
-    Start-Process -FilePath $script:PsExe -ArgumentList $PsArgs
-    return 'PowerShell'
+    return (Start-StpLogTerminal -ModuleName $ModuleName -PsExe $script:PsExe -PsArgs $PsArgs)
 }
 
 function Start-InTerminal {
@@ -65,11 +86,19 @@ function Start-InTerminal {
     $p = Get-UiParams
     if (-not $p) { return }
 
+    if ($Restart) {
+        Close-StpTerminalSession -ModuleName $p.Module | Out-Null
+        $stopProc = Invoke-StpStopHidden -UiParams $p
+        if ($stopProc.ExitCode -ne 0) {
+            $script:LblHint.Text = "停止旧服务异常，退出码 $($stopProc.ExitCode)，仍将尝试重启"
+        }
+    }
+
     $args = @($p.Args)
     if ($BuildOnly) { $args += '-BuildOnly' }
     if ($Restart) { $args += '-Restart' }
 
-    $kind = Open-Terminal -PsArgs $args
+    $kind = Open-Terminal -PsArgs $args -ModuleName $p.Module
     $action = if ($Restart) { '重启' } elseif ($BuildOnly) { '仅编译' } else { '启动' }
     $script:LblHint.Text = "已打开 $kind 窗口：$action $($p.Module)"
     Update-StatusLabel
@@ -79,17 +108,15 @@ function Stop-ServiceQuick {
     $p = Get-UiParams
     if (-not $p) { return }
 
-    $stopArgs = @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass',
-        '-File', $script:ServiceScript,
-        '-Module', $p.Module,
-        '-ProjectRoot', $p.Root,
-        '-Stop'
-    )
+    # 先关终端（含 Java 子进程），再隐藏 Stop 确保端口释放
+    $closed = Close-StpTerminalSession -ModuleName $p.Module
+    $proc = Invoke-StpStopHidden -UiParams $p
 
-    $proc = Start-Process -FilePath $script:PsExe -ArgumentList $stopArgs -Wait -PassThru -WindowStyle Hidden
     Update-StatusLabel
-    $script:LblHint.Text = if ($proc.ExitCode -eq 0) { '已停止服务（端口已释放）' } else { "停止完成，退出码 $($proc.ExitCode)" }
+    $msg = if ($proc.ExitCode -eq 0) { '已停止服务（端口已释放）' } else { "停止完成，退出码 $($proc.ExitCode)" }
+    if ($closed) { $msg += '，已关闭日志终端' }
+    else { $msg += '；若终端仍停留请手动关标签' }
+    $script:LblHint.Text = $msg
 }
 
 function Update-StatusLabel {
@@ -109,7 +136,7 @@ function Update-StatusLabel {
 # ---------------------------------------------------------------------------
 $form = New-Object System.Windows.Forms.Form
 $form.Text = '智慧水务后端 · 终端管理'
-$form.Size = New-Object System.Drawing.Size(520, 320)
+$form.Size = New-Object System.Drawing.Size(520, 348)
 $form.StartPosition = 'CenterScreen'
 $form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
 $form.FormBorderStyle = 'FixedDialog'
@@ -201,6 +228,12 @@ $chkBootRun.Text = 'bootRun（日志更全）'; $chkBootRun.Location = New-Objec
 $chkBootRun.AutoSize = $true
 $form.Controls.Add($chkBootRun)
 
+$chkUseWt = New-Object System.Windows.Forms.CheckBox
+$script:ChkUseWt = $chkUseWt
+$chkUseWt.Text = 'Windows Terminal'; $chkUseWt.Location = New-Object System.Drawing.Point(330, ($y - 2))
+$chkUseWt.AutoSize = $true; $chkUseWt.Checked = $false
+$form.Controls.Add($chkUseWt)
+
 $y += 44
 
 function New-Btn($text, $x, $w, $color) {
@@ -226,7 +259,7 @@ $y += 52
 
 $lblHint = New-Object System.Windows.Forms.Label
 $script:LblHint = $lblHint
-$lblHint.Text = '日志在终端查看；jar 启动若久无输出可勾选 bootRun，或检查 MySQL/Redis 是否连通'
+$lblHint.Text = '默认独立控制台，停止可自动关窗；WT 需勾选且停止后可能需手动关标签'
 $lblHint.Location = New-Object System.Drawing.Point($pad, $y)
 $lblHint.Size = New-Object System.Drawing.Size(460, 40)
 $lblHint.ForeColor = [Drawing.Color]::Gray

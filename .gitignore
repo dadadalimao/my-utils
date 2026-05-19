@@ -2,3 +2,6 @@
 bat/totest.bat 
 临时
 192.168*
+
+# javaTool 运行时终端 session
+javaTool/sessions/
