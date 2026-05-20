@@ -474,6 +474,30 @@ function Test-StpPortListening {
     return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
 }
 
+# 返回仍在运行的模块列表（端口监听或日志终端 session 存活）
+function Get-StpRunningModules {
+    $list = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $script:StpModuleConfig.GetEnumerator()) {
+        $name = $entry.Key
+        $cfg = $entry.Value
+        $running = $false
+        if ($cfg.Port -and (Test-StpPortListening -Port $cfg.Port)) {
+            $running = $true
+        }
+        elseif (Test-StpSessionAlive -ModuleName $name) {
+            $running = $true
+        }
+        if ($running) {
+            $list.Add([pscustomobject]@{
+                Name  = $name
+                Label = $cfg.Label
+                Port  = $cfg.Port
+            })
+        }
+    }
+    return @($list)
+}
+
 function Stop-StpPort {
     param(
         [int] $Port,

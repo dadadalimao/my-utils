@@ -11,6 +11,7 @@ Add-Type -AssemblyName System.Drawing
 
 $script:ServiceScript = Join-Path $PSScriptRoot 'stp-service.ps1'
 $script:PsExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+$script:StpGuiForceClosing = $false
 
 function Get-UiParams {
     $mod = [string]$script:ComboModule.SelectedItem
@@ -59,6 +60,33 @@ function Invoke-StpStopHidden {
         '-Stop'
     )
     return Start-Process -FilePath $script:PsExe -ArgumentList $stopArgs -Wait -PassThru -WindowStyle Hidden
+}
+
+function Stop-StpModuleQuiet {
+    param(
+        [string] $ModuleName,
+        [string] $ProjectRoot
+    )
+
+    $terminalClosed = Close-StpTerminalSession -ModuleName $ModuleName
+    $stopArgs = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-File', $script:ServiceScript,
+        '-Module', $ModuleName,
+        '-ProjectRoot', $ProjectRoot,
+        '-Stop'
+    )
+    $proc = Start-Process -FilePath $script:PsExe -ArgumentList $stopArgs -Wait -PassThru -WindowStyle Hidden
+    return @{
+        TerminalClosed = $terminalClosed
+        ExitCode       = $proc.ExitCode
+    }
+}
+
+function Get-GuiProjectRoot {
+    $root = $script:TxtProject.Text.Trim()
+    if ($root -and (Test-Path $root)) { return $root }
+    return Get-StpSavedProjectRoot
 }
 
 function Open-Terminal {
@@ -115,15 +143,49 @@ function Stop-ServiceQuick {
     $p = Get-UiParams
     if (-not $p) { return }
 
-    # 先关终端（含 Java 子进程），再隐藏 Stop 确保端口释放
-    $closed = Close-StpTerminalSession -ModuleName $p.Module
-    $proc = Invoke-StpStopHidden -UiParams $p
+    $result = Stop-StpModuleQuiet -ModuleName $p.Module -ProjectRoot $p.Root
 
     Update-StatusLabel
-    $msg = if ($proc.ExitCode -eq 0) { '已停止服务（端口已释放）' } else { "停止完成，退出码 $($proc.ExitCode)" }
-    if ($closed) { $msg += '，已关闭日志终端' }
+    $msg = if ($result.ExitCode -eq 0) { '已停止服务（端口已释放）' } else { "停止完成，退出码 $($result.ExitCode)" }
+    if ($result.TerminalClosed) { $msg += '，已关闭日志终端' }
     else { $msg += '；若终端仍停留请手动关标签' }
     $script:LblHint.Text = $msg
+}
+
+function Confirm-StpGuiClose {
+    param($FormClosingEventArgs)
+
+    if ($script:StpGuiForceClosing) { return }
+
+    $running = @(Get-StpRunningModules)
+    if ($running.Count -eq 0) { return }
+
+    $lines = ($running | ForEach-Object {
+        if ($_.Port) { "- $($_.Label)（$($_.Name)，端口 $($_.Port)）" }
+        else { "- $($_.Label)（$($_.Name)）" }
+    }) -join "`n"
+
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        "检测到以下服务仍在运行：`n$lines`n`n确认关闭将停止服务并关闭日志终端。",
+        '确认关闭',
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question
+    )
+    if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) {
+        $FormClosingEventArgs.Cancel = $true
+        return
+    }
+
+    $script:StpGuiForceClosing = $true
+    $script:StatusTimer.Stop()
+
+    $root = Get-GuiProjectRoot
+    foreach ($item in $running) {
+        try {
+            Stop-StpModuleQuiet -ModuleName $item.Name -ProjectRoot $root | Out-Null
+        }
+        catch { }
+    }
 }
 
 function Update-StpHintText {
@@ -157,6 +219,7 @@ $form.StartPosition = 'CenterScreen'
 $form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
+$form.Add_FormClosing({ param($s, $e) Confirm-StpGuiClose -FormClosingEventArgs $e })
 $form.Add_FormClosed({ Release-StpGuiSingleInstance })
 
 $y = 16; $pad = 14
@@ -296,10 +359,10 @@ $lblHint.Size = New-Object System.Drawing.Size(460, 40)
 $lblHint.ForeColor = [Drawing.Color]::Gray
 $form.Controls.Add($lblHint)
 
-$timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 2000
-$timer.Add_Tick({ Update-StatusLabel })
-$timer.Start()
+$script:StatusTimer = New-Object System.Windows.Forms.Timer
+$script:StatusTimer.Interval = 2000
+$script:StatusTimer.Add_Tick({ Update-StatusLabel })
+$script:StatusTimer.Start()
 
 Update-StatusLabel
 [void]$form.ShowDialog()
