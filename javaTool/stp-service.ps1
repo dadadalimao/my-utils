@@ -104,6 +104,9 @@ try {
 }
 catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
+    if ($_.ScriptStackTrace) {
+        Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+    }
     if ($useConsole) {
         Wait-StpConsoleBeforeClose -ExitCode 1
     }

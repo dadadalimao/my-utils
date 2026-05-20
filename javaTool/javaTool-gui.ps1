@@ -126,6 +126,15 @@ function Stop-ServiceQuick {
     $script:LblHint.Text = $msg
 }
 
+function Update-StpHintText {
+    if ($script:StpAutoCloseTerminal) {
+        $script:LblHint.Text = '独立控制台：停止可自动关窗；Gradle 日志直接输出到终端'
+    }
+    else {
+        $script:LblHint.Text = '已关闭自动关窗：停止/重启不会关终端，便于查看编译日志'
+    }
+}
+
 function Update-StatusLabel {
     $mod = [string]$script:ComboModule.SelectedItem
     if (-not $mod) { return }
@@ -143,7 +152,7 @@ function Update-StatusLabel {
 # ---------------------------------------------------------------------------
 $form = New-Object System.Windows.Forms.Form
 $form.Text = $script:StpGuiWindowTitle
-$form.Size = New-Object System.Drawing.Size(520, 348)
+$form.Size = New-Object System.Drawing.Size(520, 378)
 $form.StartPosition = 'CenterScreen'
 $form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
 $form.FormBorderStyle = 'FixedDialog'
@@ -242,7 +251,21 @@ $chkUseWt.Text = 'Windows Terminal'; $chkUseWt.Location = New-Object System.Draw
 $chkUseWt.AutoSize = $true; $chkUseWt.Checked = $false
 $form.Controls.Add($chkUseWt)
 
-$y += 44
+$y += 30
+
+$chkAutoClose = New-Object System.Windows.Forms.CheckBox
+$script:ChkAutoCloseTerminal = $chkAutoClose
+$chkAutoClose.Text = '停止时自动关终端'
+$chkAutoClose.Location = New-Object System.Drawing.Point(72, ($y - 2))
+$chkAutoClose.AutoSize = $true
+$chkAutoClose.Checked = $script:StpAutoCloseTerminal
+$chkAutoClose.Add_CheckedChanged({
+    Set-StpAutoCloseTerminalPreference -Enabled $script:ChkAutoCloseTerminal.Checked
+    Update-StpHintText
+})
+$form.Controls.Add($chkAutoClose)
+
+$y += 38
 
 function New-Btn($text, $x, $w, $color) {
     $b = New-Object System.Windows.Forms.Button
@@ -267,7 +290,7 @@ $y += 52
 
 $lblHint = New-Object System.Windows.Forms.Label
 $script:LblHint = $lblHint
-$lblHint.Text = '默认独立控制台，停止可自动关窗；WT 需勾选且停止后可能需手动关标签'
+Update-StpHintText
 $lblHint.Location = New-Object System.Drawing.Point($pad, $y)
 $lblHint.Size = New-Object System.Drawing.Size(460, 40)
 $lblHint.ForeColor = [Drawing.Color]::Gray

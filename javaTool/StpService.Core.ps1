@@ -1,5 +1,8 @@
 # 智慧水务后端启动 - 共享核心逻辑（CLI / GUI 共用）
 
+# 停止/重启/再次启动时是否自动关闭日志终端（可由 config.local.json / GUI 覆盖）
+$script:StpAutoCloseTerminal = $true
+
 $script:StpDefaultProjectRoot = 'E:\sxhwork\java\sewage-treatment-plant-service'
 
 $script:StpModuleConfig = @{
@@ -36,9 +39,46 @@ function Get-StpSavedProjectRoot {
     return $script:StpDefaultProjectRoot
 }
 
+function Get-StpLocalConfig {
+  $cfg = [ordered]@{
+    projectRoot       = $script:StpDefaultProjectRoot
+    autoCloseTerminal = $true
+  }
+  $file = Get-StpConfigFile
+  if (-not (Test-Path $file)) { return $cfg }
+  try {
+    $j = Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($j.projectRoot) { $cfg.projectRoot = [string]$j.projectRoot }
+    if ($null -ne $j.autoCloseTerminal) { $cfg.autoCloseTerminal = [bool]$j.autoCloseTerminal }
+  }
+  catch { }
+  return $cfg
+}
+
+function Save-StpLocalConfig {
+  param([hashtable] $Patch)
+  $cfg = Get-StpLocalConfig
+  foreach ($key in $Patch.Keys) { $cfg[$key] = $Patch[$key] }
+  [ordered]@{
+    projectRoot       = $cfg.projectRoot
+    autoCloseTerminal = [bool]$cfg.autoCloseTerminal
+  } | ConvertTo-Json | Set-Content (Get-StpConfigFile) -Encoding UTF8
+}
+
 function Set-StpSavedProjectRoot {
-    param([string] $ProjectRoot)
-    @{ projectRoot = $ProjectRoot } | ConvertTo-Json | Set-Content (Get-StpConfigFile) -Encoding UTF8
+  param([string] $ProjectRoot)
+  Save-StpLocalConfig @{ projectRoot = $ProjectRoot }
+}
+
+function Set-StpAutoCloseTerminalPreference {
+  param([bool] $Enabled)
+  $script:StpAutoCloseTerminal = $Enabled
+  Save-StpLocalConfig @{ autoCloseTerminal = $Enabled }
+}
+
+function Initialize-StpFromLocalConfig {
+  $cfg = Get-StpLocalConfig
+  $script:StpAutoCloseTerminal = [bool]$cfg.autoCloseTerminal
 }
 
 # ---------------------------------------------------------------------------
@@ -131,7 +171,12 @@ function Wait-StpConsoleBeforeClose {
     if ($ExitCode -ne 0) {
         Write-Host ">>> 退出码: $ExitCode" -ForegroundColor Red
     }
-    Write-Host '>>> 按 Enter 关闭此窗口（也可在 GUI 点「停止」）' -ForegroundColor Gray
+    if (-not $script:StpAutoCloseTerminal) {
+        Write-Host '>>> [调试] 已禁用自动关终端，请查看上方日志后手动关闭窗口' -ForegroundColor Yellow
+    }
+    else {
+        Write-Host '>>> 按 Enter 关闭此窗口（也可在 GUI 点「停止」）' -ForegroundColor Gray
+    }
     $null = Read-Host
 }
 
@@ -263,6 +308,10 @@ function Get-StpTerminalPids {
 function Close-StpTerminalSession {
     param([string] $ModuleName)
 
+    if (-not $script:StpAutoCloseTerminal) {
+        return $false
+    }
+
     $title = Get-StpTerminalWindowTitle -ModuleName $ModuleName
     $closed = $false
 
@@ -304,50 +353,119 @@ function Get-StpJavaExe {
     throw '未找到 Java：请安装 JDK 11 并设置 JAVA_HOME 或将 java 加入 PATH'
 }
 
-function Get-StpLatestWriteTime {
-    param([string[]] $ModuleNames, [string] $Root)
+function Update-StpLatestWriteTime {
+    param(
+        [ref] $Latest,
+        [System.IO.FileSystemInfo[]] $Items
+    )
+    foreach ($item in $Items) {
+        if ($item.LastWriteTime -gt $Latest.Value) {
+            $Latest.Value = $item.LastWriteTime
+        }
+    }
+}
 
-    $patterns = @('src\main\java\**\*.java', 'src\main\resources\**\*', 'build.gradle')
+function Get-StpLatestWriteTime {
+    param(
+        [string[]] $ModuleNames,
+        [string] $Root,
+        [string[]] $AdditionalPaths = @()
+    )
+
     $latest = [datetime]::MinValue
+    $latestRef = [ref]$latest
+    $fileCount = 0
 
     foreach ($mod in $ModuleNames) {
         $modDir = Join-Path $Root $mod
         if (-not (Test-Path $modDir)) { continue }
-        foreach ($pat in $patterns) {
-            Get-ChildItem -Path (Join-Path $modDir $pat) -File -Recurse -ErrorAction SilentlyContinue |
-                ForEach-Object { if ($_.LastWriteTime -gt $latest) { $latest = $_.LastWriteTime } }
+
+        $javaDir = Join-Path $modDir 'src\main\java'
+        if (Test-Path $javaDir) {
+            $javaFiles = @(Get-ChildItem -Path $javaDir -Filter '*.java' -Recurse -File -ErrorAction SilentlyContinue)
+            $fileCount += $javaFiles.Count
+            Update-StpLatestWriteTime -Latest $latestRef -Items $javaFiles
+        }
+
+        $resDir = Join-Path $modDir 'src\main\resources'
+        if (Test-Path $resDir) {
+            $resFiles = @(Get-ChildItem -Path $resDir -Recurse -File -ErrorAction SilentlyContinue)
+            $fileCount += $resFiles.Count
+            Update-StpLatestWriteTime -Latest $latestRef -Items $resFiles
+        }
+
+        $modGradle = Join-Path $modDir 'build.gradle'
+        if (Test-Path $modGradle) {
+            $fileCount++
+            Update-StpLatestWriteTime -Latest $latestRef -Items @(Get-Item $modGradle)
         }
     }
 
     foreach ($f in @('build.gradle', 'settings.gradle', 'gradle.properties')) {
         $p = Join-Path $Root $f
-        if ((Test-Path $p) -and (Get-Item $p).LastWriteTime -gt $latest) {
-            $latest = (Get-Item $p).LastWriteTime
+        if (Test-Path $p) {
+            $fileCount++
+            Update-StpLatestWriteTime -Latest $latestRef -Items @(Get-Item $p)
         }
     }
-    return $latest
+
+    foreach ($rel in $AdditionalPaths) {
+        $p = if ([IO.Path]::IsPathRooted($rel)) { $rel } else { Join-Path $Root $rel }
+        if (-not (Test-Path $p)) { continue }
+        if ((Get-Item $p).PSIsContainer) {
+            $extra = @(Get-ChildItem -Path $p -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -notmatch '\\build\\|\\\.gradle\\|\\.git\\' })
+            $fileCount += $extra.Count
+            Update-StpLatestWriteTime -Latest $latestRef -Items $extra
+        }
+        else {
+            $fileCount++
+            Update-StpLatestWriteTime -Latest $latestRef -Items @(Get-Item $p)
+        }
+    }
+
+    return @{ Latest = $latestRef.Value; FileCount = $fileCount }
 }
 
 function Test-StpNeedBuild {
     param(
         [string] $JarPath,
         [string[]] $WatchModules,
-        [string] $Root
+        [string] $Root,
+        [string[]] $AdditionalPaths = @()
     )
 
     if (-not (Test-Path $JarPath)) {
         return @{ NeedBuild = $true; Reason = 'jar 不存在，需要编译' }
     }
 
+    $scan = Get-StpLatestWriteTime -ModuleNames $WatchModules -Root $Root -AdditionalPaths $AdditionalPaths
+    $srcTime = $scan.Latest
     $jarTime = (Get-Item $JarPath).LastWriteTime
-    $srcTime = Get-StpLatestWriteTime -ModuleNames $WatchModules -Root $Root
-    if ($srcTime -gt $jarTime) {
+    $threshold = [TimeSpan]::FromSeconds(1)
+
+    if ($scan.FileCount -eq 0) {
         return @{
             NeedBuild = $true
-            Reason    = "源码/配置已更新 ($($srcTime.ToString('HH:mm:ss')) > $($jarTime.ToString('HH:mm:ss')))"
+            Reason    = '未扫描到源码/配置，建议编译'
         }
     }
-    return @{ NeedBuild = $false; Reason = '无变更，跳过编译' }
+
+    if (($srcTime - $jarTime) -gt $threshold) {
+        return @{
+            NeedBuild        = $true
+            Reason           = "源码/配置已更新 ($($srcTime.ToString('yyyy-MM-dd HH:mm:ss')) > $($jarTime.ToString('yyyy-MM-dd HH:mm:ss')))"
+            LatestSourceTime = $srcTime
+            JarTime          = $jarTime
+        }
+    }
+
+    return @{
+        NeedBuild        = $false
+        Reason           = "无变更（源码最新 $($srcTime.ToString('HH:mm:ss'))，Jar $($jarTime.ToString('HH:mm:ss'))）"
+        LatestSourceTime = $srcTime
+        JarTime          = $jarTime
+    }
 }
 
 function Test-StpPortListening {
@@ -398,13 +516,31 @@ function Invoke-StpGradleBuild {
         [string] $ProjectRoot,
         [string] $GradleTask,
         [scriptblock] $OnLog,
-        [System.Threading.CancellationToken] $CancelToken = [System.Threading.CancellationToken]::None
+        [System.Threading.CancellationToken] $CancelToken = [System.Threading.CancellationToken]::None,
+        [bool] $Foreground = $false
     )
 
     $gradlew = Join-Path $ProjectRoot 'gradlew.bat'
     if (-not (Test-Path $gradlew)) { throw "未找到 gradlew.bat: $gradlew" }
 
     & $OnLog ">>> 编译: $GradleTask -x test"
+
+    # 终端模式：Gradle 直接输出到当前控制台，避免重定向 + 异步事件在 Stop 下导致宿主闪退
+    if ($Foreground) {
+        Push-Location $ProjectRoot
+        try {
+            & $gradlew $GradleTask '-x', 'test', '--console=plain'
+            $code = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+            if ($code -ne 0) {
+                throw "Gradle 编译失败，退出码 $code"
+            }
+        }
+        finally {
+            Pop-Location
+        }
+        & $OnLog '>>> 编译完成'
+        return
+    }
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $gradlew
@@ -421,8 +557,22 @@ function Invoke-StpGradleBuild {
     if (-not $proc) {
         throw "无法启动 Gradle: $gradlew"
     }
-    $proc.add_OutputDataReceived({ if ($_.Data) { & $OnLog $_.Data } })
-    $proc.add_ErrorDataReceived({ if ($_.Data) { & $OnLog $_.Data } })
+
+    $logLine = {
+        param($Line)
+        try {
+            if ($null -ne $Line -and $Line.Length -gt 0) { & $OnLog $Line }
+        }
+        catch { }
+    }
+    $proc.add_OutputDataReceived({
+        param($sender, $e)
+        & $logLine $e.Data
+    })
+    $proc.add_ErrorDataReceived({
+        param($sender, $e)
+        & $logLine $e.Data
+    })
     $proc.BeginOutputReadLine()
     $proc.BeginErrorReadLine()
 
@@ -434,6 +584,9 @@ function Invoke-StpGradleBuild {
         Start-Sleep -Milliseconds 200
     }
     $proc.WaitForExit()
+    try { $proc.CancelOutputRead() } catch { }
+    try { $proc.CancelErrorRead() } catch { }
+
     if ($proc.ExitCode -ne 0) {
         throw "Gradle 编译失败，退出码 $($proc.ExitCode)"
     }
@@ -609,7 +762,8 @@ function Invoke-StpStart {
     }
 
     if ($needBuild) {
-        Invoke-StpGradleBuild -ProjectRoot $ProjectRoot -GradleTask $cfg.GradleTask -OnLog $OnLog -CancelToken $CancelToken
+        Invoke-StpGradleBuild -ProjectRoot $ProjectRoot -GradleTask $cfg.GradleTask -OnLog $OnLog `
+            -CancelToken $CancelToken -Foreground:$UseConsole
         if (-not (Test-Path $jarPath)) { throw "编译完成但未找到 jar" }
     }
 
@@ -632,3 +786,5 @@ function Invoke-StpStart {
     $RunningProcess.Value = $proc
     return $proc
 }
+
+Initialize-StpFromLocalConfig
