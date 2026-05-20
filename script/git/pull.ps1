@@ -1,4 +1,4 @@
-# Git 拉取脚本
+﻿# Git 拉取脚本
 # 功能：拉取当前分支的最新代码
 
 $ErrorActionPreference = "Stop"

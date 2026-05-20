@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # Git 新建分支脚本
 # 功能：从 origin 的默认分支（main 或 master）创建新的本地分支，启动后输入新分支名字
 

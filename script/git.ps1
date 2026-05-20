@@ -1,4 +1,4 @@
-# Git 脚本管理工具
+﻿# Git 脚本管理工具
 # 功能：提供交互式菜单，可选执行 script/git 目录下的脚本
 
 $ErrorActionPreference = "Stop"

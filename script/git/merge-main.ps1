@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # Git合并脚本
 # 功能：拉取远端 origin/main 分支最新代码并合并到当前分支
 
