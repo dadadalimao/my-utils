@@ -4,6 +4,8 @@
 $ErrorActionPreference = 'Continue'
 . (Join-Path $PSScriptRoot 'StpService.Core.ps1')
 
+if (-not (Invoke-StpGuiSingleInstanceOrActivate)) { exit 0 }
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -30,14 +32,14 @@ function Get-UiParams {
 
     try { Set-StpSavedProjectRoot -ProjectRoot $root } catch { }
 
-    # 不用 -NoExit：服务/脚本结束后终端可自动退出；停止时由 Close-StpTerminalSession 强杀
     $args = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass',
         '-File', $script:ServiceScript,
         '-Module', $mod,
         '-ProjectRoot', $root
     )
-    if ($profile) { $args += @('-Profile', $profile) }
+    # Profile 可能含逗号（如 dao,dev），必须作为单个参数传递
+    if ($profile) { $args += '-Profile'; $args += $profile }
     if ($script:ChkKillPort.Checked) { $args += '-KillPort' }
     if ($script:ChkForce.Checked) { $args += '-Force' }
     if ($script:ChkSkip.Checked) { $args += '-SkipBuild' }
@@ -72,7 +74,8 @@ function Open-Terminal {
         $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
         if ($wt) {
             $title = Get-StpTerminalWindowTitle -ModuleName $ModuleName
-            Start-Process -FilePath $wt.Source -ArgumentList (@('new-tab', '--title', $title, 'powershell') + $PsArgs)
+            $wtArgs = @('new-tab', '--title', $title, 'powershell', '-NoExit') + $PsArgs
+            Start-Process -FilePath $wt.Source -ArgumentList $wtArgs
             return 'Windows Terminal'
         }
     }
@@ -85,6 +88,10 @@ function Start-InTerminal {
 
     $p = Get-UiParams
     if (-not $p) { return }
+
+    if ($script:ChkForce.Checked -and $script:ChkSkip.Checked) {
+        [System.Windows.Forms.MessageBox]::Show('已勾选「强制编译」，将忽略「跳过编译」', '提示') | Out-Null
+    }
 
     if ($Restart) {
         Close-StpTerminalSession -ModuleName $p.Module | Out-Null
@@ -135,12 +142,13 @@ function Update-StatusLabel {
 
 # ---------------------------------------------------------------------------
 $form = New-Object System.Windows.Forms.Form
-$form.Text = '智慧水务后端 · 终端管理'
+$form.Text = $script:StpGuiWindowTitle
 $form.Size = New-Object System.Drawing.Size(520, 348)
 $form.StartPosition = 'CenterScreen'
 $form.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
+$form.Add_FormClosed({ Release-StpGuiSingleInstance })
 
 $y = 16; $pad = 14
 

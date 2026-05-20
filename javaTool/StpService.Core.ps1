@@ -42,12 +42,97 @@ function Set-StpSavedProjectRoot {
 }
 
 # ---------------------------------------------------------------------------
+# GUI 单实例（VBS / launch-gui 重复启动时激活已有窗口）
+# ---------------------------------------------------------------------------
+
+$script:StpGuiWindowTitle = '智慧水务后端 · 终端管理'
+$script:StpGuiMutexName = 'Local\StpJavaToolGui_SingleInstance'
+
+function Initialize-StpGuiActivateType {
+    if ('StpGuiActivate' -as [type]) { return }
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class StpGuiActivate {
+    public const int SW_RESTORE = 9;
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+'@
+}
+
+function Invoke-StpGuiActivateWindow {
+    param([string] $Title = $script:StpGuiWindowTitle)
+    Initialize-StpGuiActivateType
+    $hwnd = [StpGuiActivate]::FindWindow($null, $Title)
+    if ($hwnd -eq [IntPtr]::Zero) { return $false }
+    [void][StpGuiActivate]::ShowWindow($hwnd, [StpGuiActivate]::SW_RESTORE)
+    [void][StpGuiActivate]::SetForegroundWindow($hwnd)
+    return $true
+}
+
+function Test-StpGuiInstanceRunning {
+    $mutex = $null
+    try {
+        $mutex = [System.Threading.Mutex]::OpenExisting($script:StpGuiMutexName)
+        return $true
+    }
+    catch [System.Threading.WaitHandleCannotBeOpenedException] {
+        return $false
+    }
+    finally {
+        if ($mutex) { $mutex.Dispose() }
+    }
+}
+
+function Invoke-StpGuiSingleInstanceOrActivate {
+    $createdNew = $false
+    try {
+        $script:StpGuiAppMutex = New-Object System.Threading.Mutex($false, $script:StpGuiMutexName, [ref]$createdNew)
+    }
+    catch {
+        Invoke-StpGuiActivateWindow | Out-Null
+        return $false
+    }
+    if (-not $createdNew) {
+        Invoke-StpGuiActivateWindow | Out-Null
+        if ($script:StpGuiAppMutex) {
+            try { $script:StpGuiAppMutex.Dispose() } catch { }
+            $script:StpGuiAppMutex = $null
+        }
+        return $false
+    }
+    return $true
+}
+
+function Release-StpGuiSingleInstance {
+    if (-not $script:StpGuiAppMutex) { return }
+    try { [void]$script:StpGuiAppMutex.ReleaseMutex() } catch { }
+    try { $script:StpGuiAppMutex.Dispose() } catch { }
+    $script:StpGuiAppMutex = $null
+}
+
+# ---------------------------------------------------------------------------
 # 终端 session（GUI 方案 A：记录日志终端 PID，停止/重启时关闭旧窗口）
 # ---------------------------------------------------------------------------
 
 function Get-StpTerminalWindowTitle {
     param([string] $ModuleName)
     "STP-GUI-$ModuleName"
+}
+
+# 终端模式结束时等待按键（不可对终端模式使用 exit，否则会无视 -NoExit 直接关窗）
+function Wait-StpConsoleBeforeClose {
+    param([int] $ExitCode = 0)
+    if ($ExitCode -ne 0) {
+        Write-Host ">>> 退出码: $ExitCode" -ForegroundColor Red
+    }
+    Write-Host '>>> 按 Enter 关闭此窗口（也可在 GUI 点「停止」）' -ForegroundColor Gray
+    $null = Read-Host
 }
 
 function Initialize-StpWinCloseType {
@@ -93,21 +178,17 @@ function Close-StpWindowsByTitleMarker {
     return [StpWinClose]::Closed -gt 0
 }
 
-# 独立控制台启动（cmd start 设置窗口标题，停止时可 WM_CLOSE）
+# 独立控制台启动（Start-Process 传参数组，避免 cmd 拆坏 -Profile dao,dev 等含逗号参数）
 function Start-StpLogTerminal {
     param(
         [string] $ModuleName,
         [string] $PsExe,
         [string[]] $PsArgs
     )
-    $title = Get-StpTerminalWindowTitle -ModuleName $ModuleName
-    $argParts = foreach ($a in $PsArgs) {
-        if ($null -eq $a -or $a -eq '') { continue }
-        if ($a -match '\s|"') { '"' + ($a -replace '"', '\"') + '"' } else { $a }
-    }
-    $argLine = $argParts -join ' '
-    $cmdLine = "start `"$title`" `"$PsExe`" $argLine"
-    Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $cmdLine) -WindowStyle Hidden -WorkingDirectory $PSScriptRoot | Out-Null
+    # -NoExit：编译失败/异常时保留窗口；正常停止由 GUI Close-StpTerminalSession 关闭
+    $launchArgs = @('-NoExit') + $PsArgs
+    $proc = Start-Process -FilePath $PsExe -ArgumentList $launchArgs -WorkingDirectory $PSScriptRoot -PassThru
+    Save-StpSession -ModuleName $ModuleName -ShellPid $proc.Id -Kind 'console'
     return '控制台'
 }
 
@@ -499,13 +580,14 @@ function Invoke-StpStart {
     & $OnLog "Jar : $jarPath"
 
     $needBuild = $true
-    if ($SkipBuild) {
+    if ($Force) {
+        $needBuild = $true
+        & $OnLog '>>> 强制编译'
+    }
+    elseif ($SkipBuild) {
         if (-not (Test-Path $jarPath)) { throw "jar 不存在: $jarPath" }
         $needBuild = $false
         & $OnLog '>>> 跳过编译'
-    }
-    elseif ($Force) {
-        & $OnLog '>>> 强制编译'
     }
     else {
         $r = Test-StpNeedBuild -JarPath $jarPath -WatchModules $cfg.WatchModules -Root $ProjectRoot

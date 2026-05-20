@@ -1,6 +1,12 @@
 # 无控制台启动 GUI（供 启动工具.vbs 调用）
 #Requires -Version 5.1
 
+. (Join-Path $PSScriptRoot 'StpService.Core.ps1')
+if (Test-StpGuiInstanceRunning) {
+    Invoke-StpGuiActivateWindow | Out-Null
+    exit 0
+}
+
 $guiScript = Join-Path $PSScriptRoot 'javaTool-gui.ps1'
 if (-not (Test-Path $guiScript)) {
     Write-Error "找不到: $guiScript"

@@ -78,10 +78,11 @@ try {
         -KillPortBeforeStart:$KillPort -UseConsole:$useConsole -UseBootRun:$BootRun -SpringDebug:$SpringDebug `
         -OnLog { param($m) Write-Log $m } -RunningProcess $procRef
 
-    # 终端模式：java 在前台执行，结束后用退出码结束脚本
+    # 终端模式：勿 exit（会无视 -NoExit 导致闪退），结束后等待 Enter
     if ($useConsole) {
         $code = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
-        exit $code
+        Wait-StpConsoleBeforeClose -ExitCode $code
+        return
     }
 
     if ($proc) {
@@ -103,6 +104,11 @@ try {
 }
 catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
-    exit 1
+    if ($useConsole) {
+        Wait-StpConsoleBeforeClose -ExitCode 1
+    }
+    else {
+        exit 1
+    }
 }
-# session 保留至 GUI 关闭终端或再次启动覆盖（-NoExit 时脚本结束窗口仍在）
+# session 保留至 GUI 关闭终端或再次启动覆盖
