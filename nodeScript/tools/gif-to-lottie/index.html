@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIF 转 Lottie</title>
+    <script src="/js/lottie.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f4f6f8;
+            color: #333;
+        }
+
+        .wrap {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .nav {
+            margin-bottom: 16px;
+        }
+
+        .nav a {
+            color: #0d6efd;
+            text-decoration: none;
+        }
+
+        .nav a:hover {
+            text-decoration: underline;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+        }
+
+        .sub {
+            color: #666;
+            margin: 0 0 20px;
+            font-size: 0.95rem;
+        }
+
+        .panel {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        #dropZone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 36px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        #dropZone.dragover {
+            border-color: #0d6efd;
+            background: #f0f7ff;
+        }
+
+        .options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin: 16px 0;
+            align-items: center;
+        }
+
+        .options label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .options input[type="number"] {
+            width: 80px;
+            padding: 6px 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #0d6efd;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0b5ed7;
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #6c757d;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .progress-wrap {
+            margin-top: 14px;
+            display: none;
+        }
+
+        .progress-wrap.show {
+            display: block;
+        }
+
+        .progress-label {
+            font-size: 0.85rem;
+            color: #555;
+            margin-bottom: 6px;
+        }
+
+        .progress-track {
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #0d6efd;
+            border-radius: 4px;
+            transition: width 0.15s ease;
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .preview-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .preview-box {
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            min-height: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #fafafa;
+            overflow: hidden;
+            padding: 12px;
+            box-sizing: border-box;
+        }
+
+        .preview-box img {
+            max-width: 100%;
+            max-height: 360px;
+            object-fit: contain;
+        }
+
+        .lottie-stage {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #lottiePreview {
+            max-width: 100%;
+            line-height: 0;
+        }
+
+        #lottiePreview canvas,
+        #lottiePreview svg {
+            display: block;
+            max-width: 100%;
+            height: auto !important;
+        }
+
+        .preview-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        #log {
+            margin-top: 12px;
+            font-size: 0.9rem;
+            color: #555;
+            white-space: pre-wrap;
+        }
+
+        #log.error {
+            color: #c0392b;
+        }
+
+        .meta {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .placeholder {
+            color: #999;
+            font-size: 0.9rem;
+        }
+
+        .size-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .size-card {
+            flex: 1;
+            min-width: 140px;
+            padding: 12px 16px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+        }
+
+        .size-card .label {
+            display: block;
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .size-card .value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .download-panel {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e9ecef;
+            display: none;
+        }
+
+        .download-panel.show {
+            display: block;
+        }
+
+        .download-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            gap: 10px;
+        }
+
+        .download-name {
+            flex: 1;
+            min-width: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 0.9rem;
+        }
+
+        .download-name input {
+            padding: 8px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.95rem;
+        }
+
+        .ext-hint {
+            padding-bottom: 10px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <div class="nav">
+            <a href="../../index.html">← Node 脚本首页</a>
+        </div>
+
+        <h1>GIF 转 Lottie</h1>
+        <p class="sub">将 GIF 转为图像序列型 Lottie JSON。需先运行 <code>npm start</code>（单文件上传上限 150MB）。</p>
+
+        <div class="panel">
+            <div id="dropZone">
+                拖放 GIF 到此处，或点击选择文件
+                <input type="file" id="fileInput" accept="image/gif" hidden>
+            </div>
+
+            <div class="options">
+                <label>最大帧数（0=全部）<input type="number" id="maxFrames" min="0" value="0"></label>
+                <label>帧率 fps（默认 30）<input type="number" id="fps" min="1" max="60" value="30"></label>
+            </div>
+
+            <div class="actions">
+                <button type="button" id="btnConvert" disabled>开始转换</button>
+            </div>
+
+            <div class="size-row">
+                <div class="size-card">
+                    <span class="label">原 GIF 大小</span>
+                    <span class="value" id="gifSizeVal">—</span>
+                </div>
+                <div class="size-card">
+                    <span class="label">GIF 帧数</span>
+                    <span class="value" id="gifFrameVal">—</span>
+                </div>
+                <div class="size-card">
+                    <span class="label">Lottie JSON 大小</span>
+                    <span class="value" id="jsonSizeVal">—</span>
+                </div>
+            </div>
+
+            <div class="download-panel" id="downloadPanel">
+                <div class="download-row">
+                    <label class="download-name">
+                        下载文件名
+                        <input type="text" id="downloadName" autocomplete="off" spellcheck="false">
+                    </label>
+                    <span class="ext-hint">.lottie.json</span>
+                    <button type="button" id="btnDownload" class="secondary">下载 JSON</button>
+                </div>
+            </div>
+
+            <div class="progress-wrap" id="progressWrap">
+                <div class="progress-label" id="progressLabel">准备中…</div>
+                <div class="progress-track">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+            </div>
+
+            <div id="log"></div>
+        </div>
+
+        <div class="panel preview-grid">
+            <div>
+                <div class="preview-title">原 GIF</div>
+                <div class="preview-box" id="gifBox"><span class="placeholder">未选择文件</span></div>
+            </div>
+            <div>
+                <div class="preview-title">Lottie 预览</div>
+                <div class="preview-box">
+                    <div class="lottie-stage">
+                        <div id="lottiePreview"><span class="placeholder">转换后显示</span></div>
+                    </div>
+                </div>
+                <div class="meta" id="meta"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { parseGifLocal } from './gif-parse-client.mjs';
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const btnConvert = document.getElementById('btnConvert');
+        const btnDownload = document.getElementById('btnDownload');
+        const gifBox = document.getElementById('gifBox');
+        const logEl = document.getElementById('log');
+        const metaEl = document.getElementById('meta');
+        const maxFramesEl = document.getElementById('maxFrames');
+        const fpsEl = document.getElementById('fps');
+        const progressWrap = document.getElementById('progressWrap');
+        const progressLabel = document.getElementById('progressLabel');
+        const progressBar = document.getElementById('progressBar');
+        const lottiePreview = document.getElementById('lottiePreview');
+        const gifSizeVal = document.getElementById('gifSizeVal');
+        const gifFrameVal = document.getElementById('gifFrameVal');
+        const jsonSizeVal = document.getElementById('jsonSizeVal');
+        const downloadPanel = document.getElementById('downloadPanel');
+        const downloadNameEl = document.getElementById('downloadName');
+
+        let selectedFile = null;
+        /** @type {string|null} 服务端缓存的结果 id */
+        let resultId = null;
+        let lottieAnim = null;
+        let gifObjectUrl = null;
+
+        function setLog(msg, isError) {
+            logEl.textContent = msg;
+            logEl.className = isError ? 'error' : '';
+        }
+
+        /** @param {number} bytes */
+        function formatBytes(bytes) {
+            if (bytes == null || Number.isNaN(bytes)) return '—';
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+        }
+
+        /** @param {string} filename */
+        function gifBaseName(filename) {
+            return (filename || 'output').replace(/\.gif$/i, '');
+        }
+
+        function resetResultUi() {
+            gifFrameVal.textContent = '—';
+            jsonSizeVal.textContent = '—';
+            downloadPanel.classList.remove('show');
+            downloadNameEl.value = '';
+        }
+
+        function showDownloadPanel(meta) {
+            if (meta?.jsonSize != null) {
+                jsonSizeVal.textContent = formatBytes(meta.jsonSize);
+            }
+            downloadNameEl.value = gifBaseName(selectedFile?.name);
+            downloadPanel.classList.add('show');
+        }
+
+        function setProgress(percent, label) {
+            progressWrap.classList.add('show');
+            progressBar.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+            if (label) progressLabel.textContent = label;
+        }
+
+        function hideProgress() {
+            progressWrap.classList.remove('show');
+            progressBar.style.width = '0%';
+        }
+
+        async function pickFile(file) {
+            if (!file || !/\.gif$/i.test(file.name)) {
+                setLog('请选择 .gif 文件', true);
+                return;
+            }
+            selectedFile = file;
+            btnConvert.disabled = false;
+            resultId = null;
+            destroyLottie();
+            resetResultUi();
+            gifSizeVal.textContent = formatBytes(file.size);
+            gifFrameVal.textContent = '解析中…';
+
+            if (gifObjectUrl) URL.revokeObjectURL(gifObjectUrl);
+            gifObjectUrl = URL.createObjectURL(file);
+            gifBox.innerHTML = `<img src="${gifObjectUrl}" alt="gif preview">`;
+
+            try {
+                const meta = parseGifLocal(await file.arrayBuffer());
+                gifFrameVal.textContent = `${meta.frameCount} 帧`;
+                const fpsHint = meta.sourceFps ? `，GIF 原始约 ${meta.sourceFps} fps` : '';
+                setLog(`已选择: ${file.name}（${meta.width}×${meta.height}，${meta.frameCount} 帧${fpsHint}）`);
+            } catch (err) {
+                gifFrameVal.textContent = '—';
+                setLog(`已选择: ${file.name}（帧数解析失败: ${err.message}）`);
+            }
+        }
+
+        function destroyLottie() {
+            if (lottieAnim) {
+                lottieAnim.destroy();
+                lottieAnim = null;
+            }
+            lottiePreview.innerHTML = '<span class="placeholder">转换后显示</span>';
+            metaEl.textContent = '';
+        }
+
+        /**
+         * 按动画原始比例设置预览容器宽度，避免 SVG/Canvas 被压扁模糊
+         * @param {number} w
+         * @param {number} h
+         */
+        function fitLottiePreviewSize(w, h) {
+            const maxW = lottiePreview.parentElement.clientWidth || 480;
+            const maxH = 360;
+            const scale = Math.min(1, maxW / w, maxH / h);
+            lottiePreview.style.width = `${Math.round(w * scale)}px`;
+            lottiePreview.style.height = `${Math.round(h * scale)}px`;
+        }
+
+        /**
+         * 从服务端缓存 URL 加载，避免把巨型 JSON 塞进内存/请求
+         * @param {string} id
+         * @param {{ width: number, height: number }} meta
+         */
+        function showLottie(id, meta) {
+            destroyLottie();
+            lottiePreview.innerHTML = '';
+            fitLottiePreviewSize(meta.width, meta.height);
+
+            lottieAnim = lottie.loadAnimation({
+                container: lottiePreview,
+                renderer: 'canvas',
+                loop: true,
+                autoplay: true,
+                path: `/api/lottie-result/${id}`,
+                rendererSettings: {
+                    clearCanvas: true,
+                    preserveAspectRatio: 'xMidYMid meet',
+                    progressiveLoad: false
+                }
+            });
+
+            lottieAnim.addEventListener('DOMLoaded', () => {
+                lottieAnim.resize();
+            });
+            lottieAnim.addEventListener('data_failed', () => {
+                setLog('Lottie 预览加载失败', true);
+            });
+        }
+
+        /**
+         * 上传 + 流式读取转换进度
+         */
+        function convertWithProgress(file, maxFrames, fps) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/gif-to-lottie?stream=1');
+                xhr.responseType = 'text';
+
+                let lastLen = 0;
+                let buffer = '';
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const pct = Math.round((e.loaded / e.total) * 30);
+                        setProgress(pct, `上传中 ${pct}%`);
+                    } else {
+                        setProgress(10, '上传中…');
+                    }
+                };
+
+                xhr.onreadystatechange = () => {
+                    if (xhr.readyState < 3) return;
+
+                    const chunk = xhr.responseText.slice(lastLen);
+                    lastLen = xhr.responseText.length;
+                    buffer += chunk;
+
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        let msg;
+                        try {
+                            msg = JSON.parse(line);
+                        } catch {
+                            continue;
+                        }
+
+                        if (msg.type === 'progress' && msg.phase === 'convert' && msg.total > 0) {
+                            const pct = 30 + Math.round((msg.current / msg.total) * 70);
+                            setProgress(pct, `转换帧 ${msg.current} / ${msg.total}`);
+                        } else if (msg.type === 'done' && msg.ok) {
+                            setProgress(100, '完成');
+                            resolve({ id: msg.id, meta: msg.meta });
+                        } else if (msg.type === 'error') {
+                            reject(new Error(msg.message || '转换失败'));
+                        }
+                    }
+                };
+
+                xhr.onload = () => {
+                    if (xhr.status === 413) {
+                        reject(new Error(`文件过大，请小于 150 MB`));
+                        return;
+                    }
+                    if (buffer.trim()) {
+                        try {
+                            const msg = JSON.parse(buffer.trim());
+                            if (msg.type === 'done' && msg.ok) {
+                                setProgress(100, '完成');
+                                resolve({ id: msg.id, meta: msg.meta });
+                                return;
+                            }
+                            if (msg.type === 'error') {
+                                reject(new Error(msg.message));
+                                return;
+                            }
+                        } catch { /* ignore */ }
+                    }
+
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        reject(new Error('未收到完整转换结果'));
+                        return;
+                    }
+                    let errMsg = `请求失败 (${xhr.status})`;
+                    try {
+                        const errBody = JSON.parse(xhr.responseText);
+                        if (errBody.message) errMsg = errBody.message;
+                    } catch { /* ignore */ }
+                    reject(new Error(errMsg));
+                };
+
+                xhr.onerror = () => reject(new Error('网络错误'));
+
+                const form = new FormData();
+                form.append('file', file);
+                form.append('maxFrames', maxFrames);
+                form.append('fps', fps);
+                xhr.send(form);
+            });
+        }
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files[0]) pickFile(e.target.files[0]);
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files[0]) pickFile(e.dataTransfer.files[0]);
+        });
+
+        btnConvert.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            btnConvert.disabled = true;
+            downloadPanel.classList.remove('show');
+            setProgress(0, '准备中…');
+            setLog('转换中，帧数较多时请耐心等待…');
+
+            try {
+                const { id, meta } = await convertWithProgress(
+                    selectedFile,
+                    maxFramesEl.value || '0',
+                    fpsEl.value || '30'
+                );
+
+                resultId = id;
+                showLottie(resultId, meta);
+
+                metaEl.textContent = `尺寸 ${meta.width}×${meta.height}，${meta.frameCount} 帧，${meta.fps} fps`;
+                if (meta.gifSize != null) gifSizeVal.textContent = formatBytes(meta.gifSize);
+                showDownloadPanel(meta);
+                setLog('转换完成，可预览或下载 JSON');
+            } catch (err) {
+                const msg = err.message || String(err);
+                setLog(msg, true);
+                if (msg.includes('网络错误') || msg.includes('Failed')) {
+                    setLog('无法连接服务，请在 nodeScript 目录执行 npm start 后访问 http://localhost:3920', true);
+                }
+            } finally {
+                hideProgress();
+                btnConvert.disabled = !selectedFile;
+            }
+        });
+
+        btnDownload.addEventListener('click', () => {
+            if (!resultId) return;
+            const base = downloadNameEl.value.trim() || gifBaseName(selectedFile?.name);
+            const a = document.createElement('a');
+            a.href = `/api/lottie-result/${resultId}/download?name=${encodeURIComponent(base)}`;
+            a.download = `${base}.lottie.json`;
+            a.click();
+        });
+    </script>
+</body>
+
+</html>

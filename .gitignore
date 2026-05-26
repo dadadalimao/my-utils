@@ -5,3 +5,9 @@ bat/totest.bat
 
 # javaTool 运行时终端 session
 javaTool/sessions/
+javaTool/data/config.local.json
+javaTool/config.local.json
+
+# nodeScript
+nodeScript/node_modules/
+nodeScript/.cache/

@@ -16,7 +16,7 @@
 
 ## 工具列表
 
-### 🗺️ stringGetCity.html
+### 🗺️ html/stringGetCity.html
 
 **地址解析工具**
 
@@ -27,7 +27,7 @@
   - 匹配区县级（区/县/旗/市辖区/自治县/林区）
   - 自动处理重复信息，保留详细地址
 
-### 🖼️ svg-png.html
+### 🖼️ html/svg-png.html
 
 **SVG 转换工具**
 
@@ -40,7 +40,7 @@
   - 基于 Canvas 实现高清导出
   - 自动保持原始宽高比
 
-### 📄 wordToHtml.html
+### 📄 html/wordToHtml.html
 
 **Word 文档转换器**
 
@@ -54,7 +54,7 @@
   - 表格自动 100%宽度
   - 列表缩进与项目符号
 
-### ✍️ wordToRich.html
+### ✍️ html/wordToRich.html
 
 **富文本转换器**
 
@@ -67,7 +67,7 @@
   - Mammoth.js 文档解析
   - Quill 编辑器集成
 
-### 📊 objArrayToExcel.html
+### 📊 html/objArrayToExcel.html
 
 **数组转 Excel 生成器**
 
@@ -82,7 +82,7 @@
   - 友好的错误提示
   - 支持复杂数据结构
 
-### 🖌️ 批量画布调整.html
+### 🖌️ html/批量画布调整.html
 
 **图片批量画布处理器**
 
@@ -100,7 +100,7 @@
 
 ## 使用说明
 
-1. 直接双击打开对应 HTML 文件
+1. 从根目录 `index.html` 进入，或直接打开 `html/` 下对应工具页
 2. 所有工具均无需后端服务，纯浏览器运行
 3. 推荐使用 Chrome/Edge 等现代浏览器
 

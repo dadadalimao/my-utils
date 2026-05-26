@@ -1,9 +1,8 @@
-# 功能：智慧水务后端 CLI 编译启动
-# 用法: .\stp-service.ps1 -Module admin [-Stop|-Restart|-Force|-SkipBuild]
+# 兼容包装：智慧水务后端（等价 scripts\service.ps1 -Project stp）
+# 用法: .\stp-service.ps1 -Module admin [-Stop|-Restart|...]
 
 [CmdletBinding()]
 param(
-    [ValidateSet('admin', 'prec-aer')]
     [string] $Module,
 
     [switch] $Force,
@@ -20,98 +19,26 @@ param(
     [string] $LogFile
 )
 
-$ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'StpService.Core.ps1')
-
-if (-not $ProjectRoot) { $ProjectRoot = Get-StpSavedProjectRoot }
-
-function Write-Log {
-    param([string] $Message)
-    $line = "[{0}] {1}" -f (Get-Date -Format 'HH:mm:ss'), $Message
-    if ($LogFile) {
-        $dir = Split-Path $LogFile -Parent
-        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-        Add-Content -Path $LogFile -Value $line -Encoding UTF8
-    }
-    else {
-        Write-Host $Message
-    }
+$serviceScript = Join-Path $PSScriptRoot 'scripts\service.ps1'
+if (-not (Test-Path $serviceScript)) {
+    throw "找不到: $serviceScript"
 }
 
-if ($Stop -and $Restart) { throw '不能同时使用 -Stop 与 -Restart' }
-
-if (-not $Module) {
-    if ($Stop -or $Restart) { $Module = 'admin' }
-    else {
-        Write-Host '[1] admin  [2] prec-aer  [0] 退出'
-        switch (Read-Host '选择') {
-            '1' { $Module = 'admin' }
-            '2' { $Module = 'prec-aer' }
-            '0' { exit 0 }
-            default { throw '无效选择' }
-        }
-    }
+$params = @{
+    Project = 'stp'
+    Force   = $Force
+    BuildOnly = $BuildOnly
+    SkipBuild = $SkipBuild
+    KillPort  = $KillPort
+    BootRun   = $BootRun
+    SpringDebug = $SpringDebug
+    Stop      = $Stop
+    Restart   = $Restart
 }
+if ($Module) { $params.Module = $Module }
+if ($ProjectRoot) { $params.ProjectRoot = $ProjectRoot }
+if ($Profile) { $params.Profile = $Profile }
+if ($LogFile) { $params.LogFile = $LogFile }
 
-if ($Stop) {
-    Stop-StpModule -ModuleName $Module -OnLog { param($m) Write-Log $m }
-    exit 0
-}
-
-if ($Restart) {
-    Stop-StpModule -ModuleName $Module -OnLog { param($m) Write-Log $m }
-}
-
-$procRef = [ref]$null
-$useConsole = -not $LogFile
-
-# 终端模式：固定窗口标题 + session，供 GUI 按标题 WM_CLOSE / 杀进程
-if ($useConsole -and $Module) {
-    $Host.UI.RawUI.WindowTitle = Get-StpTerminalWindowTitle -ModuleName $Module
-    $termKind = if ($env:WT_SESSION) { 'wt' } else { 'console' }
-    Save-StpSession -ModuleName $Module -ShellPid $PID -Kind $termKind
-}
-
-try {
-    $proc = Invoke-StpStart -ModuleName $Module -ProjectRoot $ProjectRoot -Profile $Profile `
-        -Force:$Force -SkipBuild:$SkipBuild -BuildOnly:$BuildOnly `
-        -KillPortBeforeStart:$KillPort -UseConsole:$useConsole -UseBootRun:$BootRun -SpringDebug:$SpringDebug `
-        -OnLog { param($m) Write-Log $m } -RunningProcess $procRef
-
-    # 终端模式：勿 exit（会无视 -NoExit 导致闪退），结束后等待 Enter
-    if ($useConsole) {
-        $code = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
-        Wait-StpConsoleBeforeClose -ExitCode $code
-        return
-    }
-
-    if ($proc) {
-        $cancelHandler = {
-            param($sender, $e)
-            $e.Cancel = $true
-            if ($procRef.Value -and -not $procRef.Value.HasExited) {
-                $procRef.Value.Kill($true)
-            }
-            $cfg = $script:StpModuleConfig[$Module]
-            if ($cfg.Port) { Stop-StpPort -Port $cfg.Port -OnLog { param($m) Write-Host $m } | Out-Null }
-            [Environment]::Exit(0)
-        }
-        [Console]::CancelKeyPress.Add($cancelHandler)
-        $proc.WaitForExit()
-        [Console]::CancelKeyPress.Remove($cancelHandler)
-        exit $proc.ExitCode
-    }
-}
-catch {
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    if ($_.ScriptStackTrace) {
-        Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
-    }
-    if ($useConsole) {
-        Wait-StpConsoleBeforeClose -ExitCode 1
-    }
-    else {
-        exit 1
-    }
-}
-# session 保留至 GUI 关闭终端或再次启动覆盖
+& $serviceScript @params
+exit $LASTEXITCODE

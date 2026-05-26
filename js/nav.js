@@ -1,11 +1,25 @@
 /**
  * 统一导航栏组件
- * 在每个工具页面中引入此JS文件，即可自动添加导航栏
+ * 根目录 index.html 引入 js/nav.js；html/ 下工具页引入 ../js/nav.js
  */
 
 (function () {
-    // 工具列表配置
-    const tools = [
+    /** @returns {boolean} 当前是否在 html/ 工具子目录 */
+    function isToolPageContext() {
+        const src = document.currentScript?.getAttribute('src') || '';
+        return src.includes('../js/');
+    }
+
+    /** 根据引入位置生成相对路径 */
+    function resolveHref(fileName) {
+        const fromToolPage = isToolPageContext();
+        if (fileName === 'index.html') {
+            return fromToolPage ? '../index.html' : 'index.html';
+        }
+        return fromToolPage ? fileName : `html/${fileName}`;
+    }
+
+    const toolDefs = [
         { id: 'index', name: '工具首页', file: 'index.html', icon: '🏠' },
         { id: 'stringGetCity', name: '地址解析工具', file: 'stringGetCity.html', icon: '🗺️' },
         { id: 'svgPng', name: 'SVG转换工具', file: 'svg-png.html', icon: '🖼️' },
@@ -15,7 +29,11 @@
         { id: 'batchCanvas', name: '图片批量画布处理器', file: '批量画布调整.html', icon: '🖌️' }
     ];
 
-    // 创建导航栏样式
+    const tools = toolDefs.map((t) => ({
+        ...t,
+        href: resolveHref(t.file)
+    }));
+
     function createNavStyles() {
         const style = document.createElement('style');
         style.textContent = `
@@ -105,9 +123,7 @@
         return style;
     }
 
-    // 创建导航栏HTML
     function createNavHTML() {
-        // 获取当前页面的文件名
         const currentPath = window.location.pathname;
         const currentPage = currentPath.substring(currentPath.lastIndexOf('/') + 1);
 
@@ -117,7 +133,6 @@
         const container = document.createElement('div');
         container.className = 'nav-container';
 
-        // 创建导航头部
         const header = document.createElement('div');
         header.className = 'nav-header';
 
@@ -137,19 +152,22 @@
         header.appendChild(title);
         header.appendChild(toggle);
 
-        // 创建导航链接
         const linksList = document.createElement('ul');
         linksList.className = 'nav-links';
 
-        tools.forEach(tool => {
+        tools.forEach((tool) => {
             const listItem = document.createElement('li');
             const link = document.createElement('a');
-            link.href = tool.file;
+            link.href = tool.href;
             link.textContent = `${tool.icon} ${tool.name}`;
 
-            // 标记当前活动页面
-            if (tool.file === currentPage ||
-                (currentPage === '' && tool.id === 'index')) {
+            const isIndexPage =
+                tool.id === 'index' &&
+                (currentPage === '' || currentPage === 'index.html');
+            const isCurrentTool =
+                tool.id !== 'index' && tool.file === currentPage;
+
+            if (isIndexPage || isCurrentTool) {
                 link.className = 'active';
             }
 
@@ -164,20 +182,17 @@
         return nav;
     }
 
-    // 插入导航栏到页面中
     function insertNav() {
         const styles = createNavStyles();
         const navElement = createNavHTML();
 
-        // 插入到body的最前面
         document.body.insertBefore(navElement, document.body.firstChild);
         document.head.appendChild(styles);
     }
 
-    // 页面加载完成后插入导航栏
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', insertNav);
     } else {
         insertNav();
     }
-})(); 
+})();
