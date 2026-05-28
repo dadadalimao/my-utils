@@ -1,5 +1,5 @@
 /**
- * nodeScript 本地服务：静态页面 + GIF 转 Lottie API
+ * nodeScript 本地服务：静态页面 + GIF 转 Lottie / GIF 裁剪 API
  * 启动：npm start  →  http://localhost:3920
  */
 
@@ -8,6 +8,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { gifBufferToLottie } from './lib/gifToLottie.mjs';
+import { gifBufferCrop } from './lib/gifCrop.mjs';
 import { saveLottieResult, loadLottieResult } from './lib/resultCache.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,15 @@ function parseConvertOptions(body) {
   const opts = { fps };
   if (maxFrames > 0) opts.maxFrames = maxFrames;
   return opts;
+}
+
+function parseCropOptions(body) {
+  return {
+    x: body.x,
+    y: body.y,
+    width: body.width,
+    height: body.height
+  };
 }
 
 /** 预览 / 下载：按 id 读取缓存的 Lottie JSON */
@@ -66,6 +76,17 @@ function sanitizeDownloadBaseName(name) {
     .replace(/\.gif$/i, '')
     .replace(/\.lottie\.json$/i, '')
     .trim() || 'output';
+}
+
+function ensureGifUpload(file) {
+  if (!file) {
+    throw new Error('请上传 GIF 文件');
+  }
+  const byName = /\.gif$/i.test(file.originalname || '');
+  const byMime = String(file.mimetype || '').toLowerCase() === 'image/gif';
+  if (!byName && !byMime) {
+    throw new Error('请上传 GIF 文件');
+  }
 }
 
 /** 带帧处理进度的流式响应（NDJSON，完成时只返回缓存 id） */
@@ -121,6 +142,61 @@ app.post('/api/gif-to-lottie', upload.single('file'), async (req, res) => {
       return res.end();
     }
     res.status(500).json({ ok: false, message });
+  }
+});
+
+/** GIF 裁剪：支持二进制响应和流式 NDJSON 进度 */
+app.post('/api/gif-crop', upload.single('file'), async (req, res) => {
+  const useStream = req.query.stream === '1';
+
+  try {
+    ensureGifUpload(req.file);
+
+    const cropRect = parseCropOptions(req.body);
+    const runCrop = async (onProgress) => gifBufferCrop(req.file.buffer, cropRect, { onProgress });
+
+    if (useStream) {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.flushHeaders?.();
+
+      const write = (obj) => res.write(`${JSON.stringify(obj)}\n`);
+      write({ type: 'progress', phase: 'crop', current: 0, total: 0 });
+
+      const { buffer, meta } = await runCrop((current, total) => {
+        write({ type: 'progress', phase: 'crop', current, total });
+      });
+
+      write({
+        type: 'done',
+        ok: true,
+        meta,
+        dataBase64: buffer.toString('base64')
+      });
+      return res.end();
+    }
+
+    const { buffer, meta } = await runCrop();
+    const base = sanitizeDownloadBaseName(req.file.originalname || 'output');
+    const filename = `${base}_crop.gif`;
+    res.setHeader('Content-Type', 'image/gif');
+    res.setHeader('X-Crop-Meta', encodeURIComponent(JSON.stringify(meta)));
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+    );
+    res.send(buffer);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = message.includes('请上传 GIF 文件') || message.includes('裁剪')
+      ? 400
+      : 500;
+    if (useStream) {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.write(`${JSON.stringify({ type: 'error', message })}\n`);
+      return res.end();
+    }
+    res.status(status).json({ ok: false, message });
   }
 });
 

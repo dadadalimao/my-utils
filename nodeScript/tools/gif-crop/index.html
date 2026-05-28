@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIF 裁剪</title>
+    <style>
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f4f6f8;
+            color: #333;
+        }
+
+        .app {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 380px 1fr;
+        }
+
+        .sidebar {
+            background: #fff;
+            border-right: 1px solid #e6e6e6;
+            padding: 18px 18px 20px;
+            overflow: auto;
+        }
+
+        .workspace {
+            padding: 16px;
+            overflow: auto;
+        }
+
+        .nav a {
+            color: #0d6efd;
+            text-decoration: none;
+        }
+
+        .nav a:hover {
+            text-decoration: underline;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+        }
+
+        .sub {
+            color: #666;
+            margin: 0 0 20px;
+            font-size: 0.95rem;
+        }
+
+        .panel {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            padding: 20px;
+        }
+
+        #dropZone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 36px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        #dropZone.dragover {
+            border-color: #0d6efd;
+            background: #f0f7ff;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .meta-item {
+            border: 1px solid #e6e6e6;
+            border-radius: 8px;
+            padding: 10px;
+            background: #fafafa;
+        }
+
+        .meta-item .label {
+            display: block;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .meta-item .value {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .options label {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .options input[type="number"],
+        .download-row input[type="text"] {
+            padding: 8px 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .quick-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #0d6efd;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0b5ed7;
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #6c757d;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+
+        .progress-wrap {
+            margin-top: 16px;
+            display: none;
+        }
+
+        .progress-wrap.show {
+            display: block;
+        }
+
+        .progress-label {
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: #666;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 8px;
+            border-radius: 999px;
+            background: #e9ecef;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            width: 0;
+            height: 100%;
+            background: #0d6efd;
+            transition: width 0.15s linear;
+        }
+
+        #log {
+            margin-top: 12px;
+            color: #555;
+            font-size: 14px;
+            min-height: 20px;
+            white-space: pre-wrap;
+        }
+
+        #log.error {
+            color: #c0392b;
+        }
+
+        .preview-layout {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: 1fr 1fr;
+            min-height: calc(100vh - 32px);
+        }
+
+        .preview-layout.vertical {
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr 1fr;
+        }
+
+        .preview-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .preview-title {
+            margin: 0 0 8px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .preview-box {
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            background: #fafafa;
+            min-height: 320px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+            flex: 1;
+        }
+
+        .preview-stage {
+            position: relative;
+            width: 100%;
+            min-height: 260px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-image:
+                linear-gradient(45deg, #f0f0f0 25%, transparent 25%),
+                linear-gradient(-45deg, #f0f0f0 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #f0f0f0 75%),
+                linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+
+        .preview-stage img,
+        .preview-box img {
+            max-width: 100%;
+            max-height: 420px;
+            display: block;
+        }
+
+        .placeholder {
+            color: #9aa0a6;
+            font-size: 14px;
+        }
+
+        .crop-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        .crop-selection {
+            position: absolute;
+            border: 2px solid #0d6efd;
+            box-shadow: 0 0 0 9999px rgba(13, 110, 253, 0.2);
+            pointer-events: auto;
+            cursor: move;
+            box-sizing: border-box;
+        }
+
+        .crop-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #0d6efd;
+            border: 1px solid #fff;
+            transform: translate(-50%, -50%);
+        }
+
+        .crop-handle.nw {
+            left: 0;
+            top: 0;
+            cursor: nwse-resize;
+        }
+
+        .crop-handle.n {
+            left: 50%;
+            top: 0;
+            cursor: ns-resize;
+        }
+
+        .crop-handle.ne {
+            left: 100%;
+            top: 0;
+            cursor: nesw-resize;
+        }
+
+        .crop-handle.e {
+            left: 100%;
+            top: 50%;
+            cursor: ew-resize;
+        }
+
+        .crop-handle.se {
+            left: 100%;
+            top: 100%;
+            cursor: nwse-resize;
+        }
+
+        .crop-handle.s {
+            left: 50%;
+            top: 100%;
+            cursor: ns-resize;
+        }
+
+        .crop-handle.sw {
+            left: 0;
+            top: 100%;
+            cursor: nesw-resize;
+        }
+
+        .crop-handle.w {
+            left: 0;
+            top: 50%;
+            cursor: ew-resize;
+        }
+
+        .download-row {
+            margin-top: 14px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 1200px) {
+            .app {
+                grid-template-columns: 340px 1fr;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .app {
+                grid-template-columns: 1fr;
+            }
+
+            .workspace {
+                padding-top: 0;
+            }
+
+            .preview-layout {
+                min-height: auto;
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="nav"><a href="../../index.html">← 返回工具首页</a></div>
+            <h1>GIF 裁剪</h1>
+            <p class="sub">上传 GIF，输入或拖拽调整裁剪范围，导出新的 GIF。需先运行 <code>npm start</code>。</p>
+
+            <div class="panel">
+                <div id="dropZone">
+                    拖放 GIF 到此处，或点击选择文件
+                    <input type="file" id="fileInput" accept="image/gif" hidden>
+                </div>
+
+                <div class="meta-grid">
+                    <div class="meta-item"><span class="label">原图尺寸</span><span class="value" id="sizeVal">—</span></div>
+                    <div class="meta-item"><span class="label">帧数</span><span class="value" id="frameVal">—</span></div>
+                    <div class="meta-item"><span class="label">文件大小</span><span class="value" id="fileSizeVal">—</span></div>
+                    <div class="meta-item"><span class="label">输出尺寸</span><span class="value" id="outSizeVal">—</span></div>
+                </div>
+
+                <div class="options">
+                    <label>X <input type="number" id="cropX" min="0" value="0"></label>
+                    <label>Y <input type="number" id="cropY" min="0" value="0"></label>
+                    <label>宽 <input type="number" id="cropW" min="1" value="1"></label>
+                    <label>高 <input type="number" id="cropH" min="1" value="1"></label>
+                </div>
+
+                <div class="quick-actions">
+                    <button type="button" class="secondary" id="btnFull">重置为全图</button>
+                    <button type="button" class="secondary" id="btnCenterHalf">居中 50%</button>
+                </div>
+
+                <div class="actions">
+                    <button type="button" id="btnCrop" disabled>开始裁剪</button>
+                </div>
+
+                <div class="progress-wrap" id="progressWrap">
+                    <div class="progress-label" id="progressLabel">准备中…</div>
+                    <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+                </div>
+                <div id="log"></div>
+
+                <div class="download-row">
+                    <label>下载文件名 <input type="text" id="downloadName" spellcheck="false"></label>
+                    <span>.gif</span>
+                    <button type="button" id="btnDownload" class="secondary" disabled>下载裁剪 GIF</button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="workspace">
+            <div class="preview-layout" id="previewLayout">
+                <section class="preview-panel">
+                    <div class="preview-title">原 GIF（可拖拽裁剪框）</div>
+                    <div class="preview-box">
+                        <div class="preview-stage" id="previewStage">
+                            <img id="sourceImage" alt="source preview">
+                            <span class="placeholder" id="sourcePlaceholder">未选择文件</span>
+                        </div>
+                    </div>
+                </section>
+                <section class="preview-panel">
+                    <div class="preview-title">裁剪结果</div>
+                    <div class="preview-box" id="resultBox"><span class="placeholder">裁剪后显示</span></div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        import { parseGifLocal } from '../gif-to-lottie/gif-parse-client.mjs';
+        import { createCropOverlay } from './crop-overlay.mjs';
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const btnCrop = document.getElementById('btnCrop');
+        const btnFull = document.getElementById('btnFull');
+        const btnCenterHalf = document.getElementById('btnCenterHalf');
+        const btnDownload = document.getElementById('btnDownload');
+        const progressWrap = document.getElementById('progressWrap');
+        const progressLabel = document.getElementById('progressLabel');
+        const progressBar = document.getElementById('progressBar');
+        const sourceImage = document.getElementById('sourceImage');
+        const sourcePlaceholder = document.getElementById('sourcePlaceholder');
+        const resultBox = document.getElementById('resultBox');
+        const previewLayout = document.getElementById('previewLayout');
+        const logEl = document.getElementById('log');
+        const sizeVal = document.getElementById('sizeVal');
+        const frameVal = document.getElementById('frameVal');
+        const fileSizeVal = document.getElementById('fileSizeVal');
+        const outSizeVal = document.getElementById('outSizeVal');
+        const downloadNameEl = document.getElementById('downloadName');
+        const inputs = {
+            x: document.getElementById('cropX'),
+            y: document.getElementById('cropY'),
+            width: document.getElementById('cropW'),
+            height: document.getElementById('cropH')
+        };
+
+        const overlay = createCropOverlay({
+            stageEl: document.getElementById('previewStage'),
+            imageEl: sourceImage,
+            inputs,
+            onRectChange(rect) {
+                outSizeVal.textContent = `${rect.width} x ${rect.height}`;
+            }
+        });
+
+        let selectedFile = null;
+        let sourceMeta = null;
+        let sourceUrl = null;
+        let resultUrl = null;
+        let resultBlob = null;
+
+        function setLog(message, isError = false) {
+            logEl.textContent = message;
+            logEl.className = isError ? 'error' : '';
+        }
+
+        function formatBytes(bytes) {
+            if (bytes == null || Number.isNaN(bytes)) return '—';
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+        }
+
+        function baseName(filename) {
+            return (filename || 'output').replace(/\.gif$/i, '');
+        }
+
+        function setProgress(percent, label) {
+            progressWrap.classList.add('show');
+            progressBar.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+            progressLabel.textContent = label;
+        }
+
+        function hideProgress() {
+            progressWrap.classList.remove('show');
+            progressBar.style.width = '0%';
+        }
+
+        function clearResult() {
+            resultBlob = null;
+            btnDownload.disabled = true;
+            if (resultUrl) URL.revokeObjectURL(resultUrl);
+            resultUrl = null;
+            resultBox.innerHTML = '<span class="placeholder">裁剪后显示</span>';
+        }
+
+        function updatePreviewLayoutByRatio(meta) {
+            if (!meta || !meta.width || !meta.height) {
+                previewLayout.classList.remove('vertical');
+                return;
+            }
+            const ratio = meta.width / meta.height;
+            // 按需求：宽图（w>h）上下布局；长图与正方形左右布局。
+            previewLayout.classList.toggle('vertical', ratio > 1);
+        }
+
+        function decodeBase64ToBlob(base64) {
+            const bin = atob(base64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) {
+                bytes[i] = bin.charCodeAt(i);
+            }
+            return new Blob([bytes], { type: 'image/gif' });
+        }
+
+        async function pickFile(file) {
+            if (!file || !/\.gif$/i.test(file.name)) {
+                setLog('请选择 .gif 文件', true);
+                return;
+            }
+
+            selectedFile = file;
+            clearResult();
+            btnCrop.disabled = false;
+            downloadNameEl.value = `${baseName(file.name)}_crop`;
+            fileSizeVal.textContent = formatBytes(file.size);
+            frameVal.textContent = '解析中…';
+
+            if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+            sourceUrl = URL.createObjectURL(file);
+            sourceImage.src = sourceUrl;
+            sourcePlaceholder.style.display = 'none';
+
+            try {
+                sourceMeta = parseGifLocal(await file.arrayBuffer());
+                sizeVal.textContent = `${sourceMeta.width} x ${sourceMeta.height}`;
+                frameVal.textContent = `${sourceMeta.frameCount} 帧`;
+                updatePreviewLayoutByRatio(sourceMeta);
+                overlay.setImageSize(sourceMeta.width, sourceMeta.height);
+                overlay.setRect({
+                    x: 0,
+                    y: 0,
+                    width: sourceMeta.width,
+                    height: sourceMeta.height
+                });
+                setLog(`已选择: ${file.name}`);
+            } catch (err) {
+                sourceMeta = null;
+                sizeVal.textContent = '—';
+                frameVal.textContent = '—';
+                updatePreviewLayoutByRatio(null);
+                setLog(`GIF 解析失败：${err.message || err}`, true);
+            }
+        }
+
+        function cropWithProgress(file, rect) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/gif-crop?stream=1');
+                xhr.responseType = 'text';
+
+                let lastLen = 0;
+                let cache = '';
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const pct = Math.round((event.loaded / event.total) * 30);
+                        setProgress(pct, `上传中 ${pct}%`);
+                    } else {
+                        setProgress(10, '上传中…');
+                    }
+                };
+
+                xhr.onreadystatechange = () => {
+                    if (xhr.readyState < 3) return;
+                    const chunk = xhr.responseText.slice(lastLen);
+                    lastLen = xhr.responseText.length;
+                    cache += chunk;
+
+                    const lines = cache.split('\n');
+                    cache = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        let msg;
+                        try {
+                            msg = JSON.parse(line);
+                        } catch {
+                            continue;
+                        }
+
+                        if (msg.type === 'progress' && msg.phase === 'crop' && msg.total > 0) {
+                            const pct = 30 + Math.round((msg.current / msg.total) * 70);
+                            setProgress(pct, `裁剪帧 ${msg.current} / ${msg.total}`);
+                        } else if (msg.type === 'done' && msg.ok) {
+                            setProgress(100, '完成');
+                            resolve(msg);
+                        } else if (msg.type === 'error') {
+                            reject(new Error(msg.message || '裁剪失败'));
+                        }
+                    }
+                };
+
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) return;
+                    let message = `请求失败 (${xhr.status})`;
+                    try {
+                        const body = JSON.parse(xhr.responseText);
+                        if (body.message) message = body.message;
+                    } catch {
+                        // ignore
+                    }
+                    reject(new Error(message));
+                };
+
+                xhr.onerror = () => reject(new Error('网络错误'));
+
+                const form = new FormData();
+                form.append('file', file);
+                form.append('x', String(rect.x));
+                form.append('y', String(rect.y));
+                form.append('width', String(rect.width));
+                form.append('height', String(rect.height));
+                xhr.send(form);
+            });
+        }
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) pickFile(file);
+        });
+
+        dropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = event.dataTransfer.files[0];
+            if (file) pickFile(file);
+        });
+
+        btnFull.addEventListener('click', () => {
+            if (!sourceMeta) return;
+            overlay.setRect({ x: 0, y: 0, width: sourceMeta.width, height: sourceMeta.height });
+        });
+
+        btnCenterHalf.addEventListener('click', () => {
+            if (!sourceMeta) return;
+            const width = Math.max(1, Math.floor(sourceMeta.width / 2));
+            const height = Math.max(1, Math.floor(sourceMeta.height / 2));
+            overlay.setRect({
+                x: Math.floor((sourceMeta.width - width) / 2),
+                y: Math.floor((sourceMeta.height - height) / 2),
+                width,
+                height
+            });
+        });
+
+        btnCrop.addEventListener('click', async () => {
+            if (!selectedFile) return;
+            const rect = overlay.getRect();
+
+            btnCrop.disabled = true;
+            clearResult();
+            setProgress(0, '准备中…');
+            setLog('裁剪中，请稍候…');
+
+            try {
+                const result = await cropWithProgress(selectedFile, rect);
+                resultBlob = decodeBase64ToBlob(result.dataBase64);
+                if (resultUrl) URL.revokeObjectURL(resultUrl);
+                resultUrl = URL.createObjectURL(resultBlob);
+                resultBox.innerHTML = `<img src="${resultUrl}" alt="cropped gif">`;
+                btnDownload.disabled = false;
+                const meta = result.meta || {};
+                outSizeVal.textContent = `${meta.width || rect.width} x ${meta.height || rect.height}`;
+                setLog('裁剪完成，可下载结果 GIF。');
+            } catch (err) {
+                setLog(err.message || String(err), true);
+            } finally {
+                hideProgress();
+                btnCrop.disabled = !selectedFile;
+            }
+        });
+
+        btnDownload.addEventListener('click', () => {
+            if (!resultBlob || !resultUrl) return;
+            const base = (downloadNameEl.value || `${baseName(selectedFile?.name)}_crop`).trim();
+            const name = `${base || 'output_crop'}.gif`;
+            const a = document.createElement('a');
+            a.href = resultUrl;
+            a.download = name;
+            a.click();
+        });
+    </script>
+</body>
+
+</html>

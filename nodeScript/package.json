@@ -6,10 +6,12 @@
   "description": "Node 脚本工具集（本地服务 + Web 界面）",
   "scripts": {
     "start": "node server.mjs",
-    "gif-to-lottie": "node scripts/gif-to-lottie.mjs"
+    "gif-to-lottie": "node scripts/gif-to-lottie.mjs",
+    "gif-crop": "node scripts/gif-crop.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",
+    "gifenc": "^1.0.3",
     "gifuct-js": "^2.1.2",
     "multer": "^1.4.5-lts.1",
     "pngjs": "^7.0.0"

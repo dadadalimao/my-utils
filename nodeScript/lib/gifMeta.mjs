@@ -20,13 +20,13 @@ export function getGifMeta(input) {
 
   const delays = frames.map((f) => f.delay || 10).filter((d) => d > 0);
   const avgDelay = delays.reduce((a, b) => a + b, 0) / (delays.length || 1);
-  const sourceFps = Math.min(60, Math.max(1, Math.round(100 / avgDelay) || 1));
+  const sourceFps = Math.min(60, Math.max(1, Math.round(1000 / avgDelay) || 1));
 
   return {
     width: gif.lsd.width,
     height: gif.lsd.height,
     frameCount: frames.length,
-    /** GIF 内嵌 delay 推算的原始帧率（单位 cs/帧） */
+    /** GIF 内嵌 delay（ms/帧）推算的原始帧率 */
     sourceFps
   };
 }

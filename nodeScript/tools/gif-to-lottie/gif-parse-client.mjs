@@ -34,28 +34,35 @@ export function parseGifLocal(arrayBuffer) {
       if (label === 0xf9 && i + 6 < u8.length) {
         delays.push(u8[i + 4] | (u8[i + 5] << 8) || 10);
       }
+      // Extension block: 0x21 + label + sub-blocks(size + payload ... 0x00)
       i += 2;
-      while (i < u8.length && u8[i] !== 0) {
-        i += 1 + u8[i];
-      }
-      if (i < u8.length && u8[i] === 0) i++;
+      i = skipSubBlocks(u8, i);
       continue;
     }
 
     if (block === 0x2c) {
       frameCount++;
+      // Image Descriptor: separator(1) + descriptor(9)
       i += 9;
+      if (i >= u8.length) break;
       const localPacked = u8[i];
+      // Optional Local Color Table
       if (localPacked & 0x80) {
         const lctSize = 2 << (localPacked & 0x07);
         i += lctSize * 3;
       }
+      // Move after packed/local table to LZW minimum code size
       i++;
-      if (i < u8.length) i += 1 + u8[i];
-      while (i < u8.length && u8[i] !== 0) {
-        i += 1 + u8[i];
+      if (i >= u8.length) break;
+      // Skip LZW minimum code size byte
+      i++;
+      // Skip image data sub-blocks
+      while (i < u8.length) {
+        const size = u8[i];
+        i++;
+        if (size === 0) break;
+        i += size;
       }
-      if (i < u8.length && u8[i] === 0) i++;
       continue;
     }
 
@@ -66,6 +73,7 @@ export function parseGifLocal(arrayBuffer) {
   let sourceFps = null;
   if (delays.length) {
     const avg = delays.reduce((a, b) => a + b, 0) / delays.length;
+    // Graphic Control Extension 的 delay 单位是 1/100 秒，换算为 fps 用 100 / delayCs
     sourceFps = Math.min(60, Math.max(1, Math.round(100 / avg) || 1));
   }
 
@@ -75,4 +83,20 @@ export function parseGifLocal(arrayBuffer) {
     frameCount: Math.max(frameCount, 1),
     sourceFps
   };
+}
+
+/**
+ * 跳过 GIF 子块序列（size + payload ... + terminator 0x00）
+ * @param {Uint8Array} u8
+ * @param {number} start
+ */
+function skipSubBlocks(u8, start) {
+  let i = start;
+  while (i < u8.length) {
+    const size = u8[i];
+    i++;
+    if (size === 0) break;
+    i += size;
+  }
+  return i;
 }
