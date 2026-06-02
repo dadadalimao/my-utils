@@ -11,3 +11,7 @@ javaTool/config.local.json
 # nodeScript
 nodeScript/node_modules/
 nodeScript/.cache/
+# 本地字体库（仅本地使用，勿提交字体文件）
+nodeScript/assets/fonts/*
+!nodeScript/assets/fonts/.gitkeep
+nodeScript/.yarn/

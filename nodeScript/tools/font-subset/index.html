@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>字体压缩</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f4f6f8;
+            color: #333;
+        }
+
+        .wrap {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .nav {
+            margin-bottom: 16px;
+        }
+
+        .nav a {
+            color: #0d6efd;
+            text-decoration: none;
+        }
+
+        .nav a:hover {
+            text-decoration: underline;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+        }
+
+        .sub {
+            color: #666;
+            margin: 0 0 20px;
+            font-size: 0.95rem;
+        }
+
+        .panel {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        #dropZone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 36px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        #dropZone.dragover {
+            border-color: #0d6efd;
+            background: #f0f7ff;
+        }
+
+        .preset-group {
+            margin-top: 16px;
+        }
+
+        .preset-group > label {
+            display: block;
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        .preset-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .preset-options label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            background: #fafafa;
+        }
+
+        .preset-options label:has(input:checked) {
+            border-color: #0d6efd;
+            background: #f0f7ff;
+        }
+
+        .preset-hint {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #888;
+            word-break: break-all;
+        }
+
+        .options {
+            margin-top: 14px;
+        }
+
+        .options label {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 0.9rem;
+            color: #555;
+        }
+
+        .options input[type="text"] {
+            padding: 8px 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #0d6efd;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0b5ed7;
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #6c757d;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .size-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .size-card {
+            flex: 1;
+            min-width: 140px;
+            padding: 12px 16px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+        }
+
+        .size-card .label {
+            display: block;
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .size-card .value {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .preview-panel {
+            margin-top: 16px;
+        }
+
+        .preview-title {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .preview-text {
+            padding: 16px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            background: #fafafa;
+            font-size: 28px;
+            line-height: 1.6;
+            min-height: 60px;
+            word-break: break-all;
+        }
+
+        #log {
+            margin-top: 12px;
+            font-size: 0.9rem;
+            color: #555;
+            white-space: pre-wrap;
+        }
+
+        #log.error {
+            color: #c0392b;
+        }
+
+        .file-name {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .source-divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 18px 0 12px;
+            color: #888;
+            font-size: 0.85rem;
+        }
+
+        .source-divider::before,
+        .source-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #e6e6e6;
+        }
+
+        .asset-group > label {
+            display: block;
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        .asset-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 200px;
+            overflow: auto;
+        }
+
+        .asset-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #fafafa;
+            cursor: pointer;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+
+        .asset-item:hover {
+            border-color: #0d6efd;
+            background: #f8fbff;
+        }
+
+        .asset-item.selected {
+            border-color: #0d6efd;
+            background: #f0f7ff;
+        }
+
+        .asset-item .name {
+            word-break: break-all;
+        }
+
+        .asset-item .size {
+            flex-shrink: 0;
+            color: #888;
+            font-size: 0.85rem;
+        }
+
+        .asset-empty {
+            font-size: 0.85rem;
+            color: #888;
+            padding: 8px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <div class="nav"><a href="../../index.html">← 返回工具集</a></div>
+        <h1>字体压缩</h1>
+        <p class="sub">上传字体，或从 <code>assets/fonts</code> 选择已有字体，按字符集提取字形并压缩体积。</p>
+
+        <div class="panel">
+            <div id="dropZone">
+                <div>点击或拖拽字体文件到此处</div>
+                <div style="font-size:0.85rem;color:#888;margin-top:8px;">支持 .ttf .otf .woff .woff2</div>
+            </div>
+            <input type="file" id="fileInput" accept=".ttf,.otf,.woff,.woff2,font/*" hidden>
+            <div class="file-name" id="fileName"></div>
+
+            <div class="source-divider">或从本地字体库选择</div>
+            <div class="asset-group">
+                <label>assets/fonts</label>
+                <div class="asset-list" id="assetList">
+                    <div class="asset-empty">加载中…</div>
+                </div>
+            </div>
+
+            <div class="preset-group">
+                <label>字符预置</label>
+                <div class="preset-options">
+                    <label><input type="radio" name="preset" value="digits"> 纯数字</label>
+                    <label><input type="radio" name="preset" value="numbers" checked> 数字</label>
+                    <label><input type="radio" name="preset" value="currency"> 金额</label>
+                    <label><input type="radio" name="preset" value="custom"> 自定义</label>
+                </div>
+                <div class="preset-hint" id="presetHint"></div>
+            </div>
+
+            <div class="options" id="customCharsWrap" style="display:none;">
+                <label>
+                    自定义字符（可与预置叠加；选「自定义」时仅使用此处）
+                    <input type="text" id="customChars" placeholder="例如：0123456789元">
+                </label>
+            </div>
+
+            <div class="actions">
+                <button type="button" id="btnProcess" disabled>开始压缩</button>
+                <button type="button" id="btnDownload" class="secondary" disabled>下载压缩字体</button>
+            </div>
+
+            <div class="size-row" id="sizeRow" style="display:none;">
+                <div class="size-card">
+                    <span class="label">原始大小</span>
+                    <span class="value" id="origSize">—</span>
+                </div>
+                <div class="size-card">
+                    <span class="label">压缩后</span>
+                    <span class="value" id="outSize">—</span>
+                </div>
+                <div class="size-card">
+                    <span class="label">节省</span>
+                    <span class="value" id="savedPct">—</span>
+                </div>
+                <div class="size-card">
+                    <span class="label">保留字符</span>
+                    <span class="value" id="charCount">—</span>
+                </div>
+            </div>
+
+            <div class="preview-panel" id="previewPanel" style="display:none;">
+                <div class="preview-title">预览（使用压缩后的字体）</div>
+                <div class="preview-text" id="previewText"></div>
+            </div>
+
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        const PRESETS = {
+            digits: '0123456789',
+            numbers: '0123456789.,-+:% ',
+            currency: '0123456789.,-+:% ¥$€£₩¢₹₽'
+        };
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameEl = document.getElementById('fileName');
+        const presetHint = document.getElementById('presetHint');
+        const customCharsWrap = document.getElementById('customCharsWrap');
+        const customCharsInput = document.getElementById('customChars');
+        const btnProcess = document.getElementById('btnProcess');
+        const btnDownload = document.getElementById('btnDownload');
+        const sizeRow = document.getElementById('sizeRow');
+        const previewPanel = document.getElementById('previewPanel');
+        const previewText = document.getElementById('previewText');
+        const logEl = document.getElementById('log');
+        const assetListEl = document.getElementById('assetList');
+
+        /** @type {{ type: 'upload', file: File } | { type: 'asset', name: string, size: number } | null} */
+        let source = null;
+        let resultBlob = null;
+        let resultMeta = null;
+        let previewFontUrl = null;
+        let assetFonts = [];
+
+        function formatBytes(n) {
+            if (n < 1024) return `${n} B`;
+            if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+            return `${(n / 1024 / 1024).toFixed(2)} MB`;
+        }
+
+        function getPreset() {
+            return document.querySelector('input[name="preset"]:checked')?.value || 'numbers';
+        }
+
+        function updatePresetUI() {
+            const preset = getPreset();
+            customCharsWrap.style.display = preset === 'custom' ? 'block' : 'none';
+            if (preset === 'custom') {
+                presetHint.textContent = '将仅使用下方自定义字符';
+            } else {
+                presetHint.textContent = `包含：${PRESETS[preset]}`;
+            }
+        }
+
+        document.querySelectorAll('input[name="preset"]').forEach((el) => {
+            el.addEventListener('change', updatePresetUI);
+        });
+        updatePresetUI();
+
+        function setLog(msg, isError = false) {
+            logEl.textContent = msg || '';
+            logEl.classList.toggle('error', isError);
+        }
+
+        function getSourceName() {
+            if (!source) return '';
+            return source.type === 'upload' ? source.file.name : source.name;
+        }
+
+        function clearResults() {
+            resultBlob = null;
+            resultMeta = null;
+            btnDownload.disabled = true;
+            sizeRow.style.display = 'none';
+            previewPanel.style.display = 'none';
+            if (previewFontUrl) {
+                URL.revokeObjectURL(previewFontUrl);
+                previewFontUrl = null;
+            }
+        }
+
+        function updateSourceUI() {
+            const hasSource = !!source;
+            btnProcess.disabled = !hasSource;
+            fileNameEl.textContent = source
+                ? (source.type === 'upload'
+                    ? `${source.file.name}（${formatBytes(source.file.size)}）`
+                    : `${source.name}（${formatBytes(source.size)}，assets/fonts）`)
+                : '';
+
+            assetListEl.querySelectorAll('.asset-item').forEach((el) => {
+                const name = el.dataset.name;
+                el.classList.toggle('selected', source?.type === 'asset' && source.name === name);
+            });
+        }
+
+        function setUploadFile(file) {
+            source = { type: 'upload', file };
+            fileInput.value = '';
+            clearResults();
+            updateSourceUI();
+            setLog('');
+        }
+
+        function setAssetFont(name, size) {
+            source = { type: 'asset', name, size };
+            fileInput.value = '';
+            clearResults();
+            updateSourceUI();
+            setLog('');
+        }
+
+        function renderAssetList() {
+            if (!assetFonts.length) {
+                assetListEl.innerHTML = '<div class="asset-empty">assets/fonts 目录暂无字体，可将 .ttf 等文件放入该目录</div>';
+                return;
+            }
+
+            assetListEl.innerHTML = assetFonts.map((font) => `
+                <button type="button" class="asset-item" data-name="${font.name}">
+                    <span class="name">${font.name}</span>
+                    <span class="size">${formatBytes(font.size)}</span>
+                </button>
+            `).join('');
+
+            assetListEl.querySelectorAll('.asset-item').forEach((el) => {
+                el.addEventListener('click', () => {
+                    const name = el.dataset.name;
+                    const font = assetFonts.find((item) => item.name === name);
+                    if (font) setAssetFont(font.name, font.size);
+                });
+            });
+            updateSourceUI();
+        }
+
+        async function loadAssetFonts() {
+            try {
+                const res = await fetch('/api/font-subset/assets');
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.message || '加载字体列表失败');
+                }
+                assetFonts = data.fonts || [];
+                renderAssetList();
+            } catch (err) {
+                assetListEl.innerHTML = `<div class="asset-empty">${err.message || String(err)}</div>`;
+            }
+        }
+
+        loadAssetFonts();
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files?.[0];
+            if (file) setUploadFile(file);
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files?.[0];
+            if (file) setUploadFile(file);
+        });
+
+        function applyPreview(blob, chars) {
+            if (previewFontUrl) URL.revokeObjectURL(previewFontUrl);
+            previewFontUrl = URL.createObjectURL(blob);
+            previewText.style.fontFamily = 'SubsetPreview';
+            const style = document.getElementById('previewFontStyle') || document.createElement('style');
+            style.id = 'previewFontStyle';
+            style.textContent = `@font-face { font-family: 'SubsetPreview'; src: url('${previewFontUrl}'); }`;
+            document.head.appendChild(style);
+            previewText.textContent = chars;
+            previewPanel.style.display = 'block';
+        }
+
+        btnProcess.addEventListener('click', async () => {
+            if (!source) return;
+
+            btnProcess.disabled = true;
+            setLog('正在压缩…');
+
+            const form = new FormData();
+            if (source.type === 'upload') {
+                form.append('file', source.file);
+            } else {
+                form.append('assetName', source.name);
+            }
+            form.append('preset', getPreset());
+            form.append('customChars', customCharsInput.value);
+
+            try {
+                const res = await fetch('/api/font-subset', { method: 'POST', body: form });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.message || '压缩失败');
+                }
+
+                resultMeta = data.meta;
+                const binary = atob(data.dataBase64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                resultBlob = new Blob([bytes], { type: 'application/octet-stream' });
+
+                document.getElementById('origSize').textContent = formatBytes(data.meta.originalSize);
+                document.getElementById('outSize').textContent = formatBytes(data.meta.outputSize);
+                document.getElementById('savedPct').textContent = `${data.meta.savedPercent}%`;
+                document.getElementById('charCount').textContent = `${data.meta.charCount} 个`;
+                sizeRow.style.display = 'flex';
+
+                applyPreview(resultBlob, data.meta.chars);
+                btnDownload.disabled = false;
+                setLog(`完成，保留 ${data.meta.charCount} 个字符`);
+            } catch (err) {
+                setLog(err.message || String(err), true);
+            } finally {
+                btnProcess.disabled = !source;
+            }
+        });
+
+        btnDownload.addEventListener('click', () => {
+            if (!resultBlob || !source) return;
+            const sourceName = getSourceName();
+            const base = sourceName.replace(/\.(ttf|otf|woff2?)$/i, '');
+            const ext = sourceName.match(/\.(ttf|otf|woff2?)$/i)?.[0] || '.ttf';
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(resultBlob);
+            a.download = `${base}_subset${ext}`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+    </script>
+</body>
+
+</html>

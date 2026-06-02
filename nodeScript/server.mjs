@@ -1,5 +1,5 @@
 /**
- * nodeScript 本地服务：静态页面 + GIF 转 Lottie / GIF 裁剪 API
+ * nodeScript 本地服务：静态页面 + GIF 转 Lottie / GIF 裁剪 / 字体压缩 API
  * 启动：npm start  →  http://localhost:3920
  */
 
@@ -9,9 +9,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { gifBufferToLottie } from './lib/gifToLottie.mjs';
 import { gifBufferCrop } from './lib/gifCrop.mjs';
+import {
+  fontBufferSubset,
+  FONT_ASSETS_REL,
+  isFontFile,
+  listAssetFonts,
+  outputExtFromFilename,
+  readAssetFont,
+  targetFormatFromExt
+} from './lib/fontSubset.mjs';
 import { saveLottieResult, loadLottieResult } from './lib/resultCache.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FONT_ASSETS_DIR = path.join(__dirname, FONT_ASSETS_REL);
 const PORT = Number(process.env.PORT) || 3920;
 /** 上传上限（MB），可按机器内存适当调大 */
 const MAX_UPLOAD_MB = 150;
@@ -196,6 +206,59 @@ app.post('/api/gif-crop', upload.single('file'), async (req, res) => {
       res.write(`${JSON.stringify({ type: 'error', message })}\n`);
       return res.end();
     }
+    res.status(status).json({ ok: false, message });
+  }
+});
+
+/** 列出 assets/fonts 中的字体 */
+app.get('/api/font-subset/assets', (_req, res) => {
+  try {
+    const fonts = listAssetFonts(FONT_ASSETS_DIR);
+    res.json({ ok: true, fonts });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ ok: false, message });
+  }
+});
+
+/** 字体子集压缩：支持上传或 assets/fonts 文件名 */
+app.post('/api/font-subset', upload.single('file'), async (req, res) => {
+  try {
+    let fontBuffer;
+    let filename;
+
+    const assetName = String(req.body.assetName || '').trim();
+    if (assetName) {
+      const asset = readAssetFont(FONT_ASSETS_DIR, assetName);
+      fontBuffer = asset.buffer;
+      filename = asset.filename;
+    } else if (req.file) {
+      if (!isFontFile(req.file)) {
+        return res.status(400).json({ ok: false, message: '请上传 TTF / OTF / WOFF / WOFF2 字体文件' });
+      }
+      fontBuffer = req.file.buffer;
+      filename = req.file.originalname || '';
+    } else {
+      return res.status(400).json({ ok: false, message: '请上传字体文件或选择 assets/fonts 中的字体' });
+    }
+
+    const ext = outputExtFromFilename(filename);
+    const { buffer, meta } = await fontBufferSubset(fontBuffer, {
+      preset: req.body.preset || 'numbers',
+      customChars: req.body.customChars || '',
+      targetFormat: targetFormatFromExt(ext)
+    });
+
+    res.json({
+      ok: true,
+      meta: { ...meta, sourceName: filename },
+      dataBase64: buffer.toString('base64')
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status = message.includes('请') || message.includes('字符集') || message.includes('无效') || message.includes('未找到')
+      ? 400
+      : 500;
     res.status(status).json({ ok: false, message });
   }
 });
