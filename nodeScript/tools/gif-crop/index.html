@@ -233,20 +233,48 @@
             background: #fafafa;
             min-height: 320px;
             display: flex;
-            align-items: center;
-            justify-content: center;
+            flex-direction: column;
             overflow: hidden;
             position: relative;
             flex: 1;
         }
 
-        .preview-stage {
-            position: relative;
-            width: 100%;
-            min-height: 260px;
+        .preview-toolbar {
             display: flex;
             align-items: center;
-            justify-content: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid #e6e6e6;
+            background: #fff;
+            flex-wrap: wrap;
+        }
+
+        .preview-toolbar .zoom-label {
+            font-size: 13px;
+            color: #555;
+            min-width: 48px;
+            text-align: center;
+        }
+
+        .preview-toolbar button {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+
+        .preview-toolbar label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #555;
+            margin-left: auto;
+        }
+
+        .preview-viewport {
+            position: relative;
+            flex: 1;
+            min-height: 260px;
+            overflow: hidden;
             background-image:
                 linear-gradient(45deg, #f0f0f0 25%, transparent 25%),
                 linear-gradient(-45deg, #f0f0f0 25%, transparent 25%),
@@ -256,11 +284,50 @@
             background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
         }
 
-        .preview-stage img,
-        .preview-box img {
+        .preview-viewport.pan-ready {
+            cursor: grab;
+        }
+
+        .preview-viewport.panning {
+            cursor: grabbing;
+        }
+
+        .preview-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: 0 0;
+            will-change: transform;
+        }
+
+        .preview-canvas img {
+            display: block;
+        }
+
+        .preview-viewport .placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #resultBox img {
             max-width: 100%;
             max-height: 420px;
             display: block;
+            object-fit: contain;
+        }
+
+        .pixel-grid {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(to right, rgba(0, 0, 0, 0.12) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0, 0, 0, 0.12) 1px, transparent 1px);
+            background-size: 1px 1px;
+            z-index: 1;
         }
 
         .placeholder {
@@ -272,11 +339,12 @@
             position: absolute;
             inset: 0;
             pointer-events: none;
+            z-index: 2;
         }
 
         .crop-selection {
             position: absolute;
-            border: 2px solid #0d6efd;
+            border: calc(1px / var(--viewport-zoom, 1)) solid #0d6efd;
             box-shadow: 0 0 0 9999px rgba(13, 110, 253, 0.2);
             pointer-events: auto;
             cursor: move;
@@ -289,8 +357,8 @@
             height: 10px;
             border-radius: 50%;
             background: #0d6efd;
-            border: 1px solid #fff;
-            transform: translate(-50%, -50%);
+            border: calc(1px / var(--viewport-zoom, 1)) solid #fff;
+            transform: translate(-50%, -50%) scale(calc(1 / var(--viewport-zoom, 1)));
         }
 
         .crop-handle.nw {
@@ -378,7 +446,7 @@
         <aside class="sidebar">
             <div class="nav"><a href="../../index.html">← 返回工具首页</a></div>
             <h1>GIF 裁剪</h1>
-            <p class="sub">上传 GIF，输入或拖拽调整裁剪范围，导出新的 GIF。需先运行 <code>npm start</code>。</p>
+            <p class="sub">上传 GIF，输入或拖拽调整裁剪范围，导出新的 GIF。预览区支持 Ctrl+滚轮缩放、空格/中键平移。需先运行 <code>npm start</code>。</p>
 
             <div class="panel">
                 <div id="dropZone">
@@ -428,8 +496,17 @@
                 <section class="preview-panel">
                     <div class="preview-title">原 GIF（可拖拽裁剪框）</div>
                     <div class="preview-box">
-                        <div class="preview-stage" id="previewStage">
-                            <img id="sourceImage" alt="source preview">
+                        <div class="preview-toolbar">
+                            <button type="button" class="secondary" id="btnZoomOut" title="缩小">−</button>
+                            <span class="zoom-label" id="zoomVal">100%</span>
+                            <button type="button" class="secondary" id="btnZoomIn" title="放大">+</button>
+                            <button type="button" class="secondary" id="btnFitView" title="适应窗口">适应</button>
+                            <label><input type="checkbox" id="pixelGridToggle" checked> 像素网格</label>
+                        </div>
+                        <div class="preview-viewport" id="previewViewport">
+                            <div class="preview-canvas" id="previewCanvas">
+                                <img id="sourceImage" alt="source preview">
+                            </div>
                             <span class="placeholder" id="sourcePlaceholder">未选择文件</span>
                         </div>
                     </div>
@@ -444,6 +521,7 @@
 
     <script type="module">
         import { parseGifLocal } from '../gif-to-lottie/gif-parse-client.mjs';
+        import { createViewport } from './viewport.mjs';
         import { createCropOverlay } from './crop-overlay.mjs';
 
         const dropZone = document.getElementById('dropZone');
@@ -465,6 +543,13 @@
         const fileSizeVal = document.getElementById('fileSizeVal');
         const outSizeVal = document.getElementById('outSizeVal');
         const downloadNameEl = document.getElementById('downloadName');
+        const previewViewport = document.getElementById('previewViewport');
+        const previewCanvas = document.getElementById('previewCanvas');
+        const zoomVal = document.getElementById('zoomVal');
+        const btnZoomIn = document.getElementById('btnZoomIn');
+        const btnZoomOut = document.getElementById('btnZoomOut');
+        const btnFitView = document.getElementById('btnFitView');
+        const pixelGridToggle = document.getElementById('pixelGridToggle');
         const inputs = {
             x: document.getElementById('cropX'),
             y: document.getElementById('cropY'),
@@ -472,14 +557,40 @@
             height: document.getElementById('cropH')
         };
 
+        function updateZoomLabel() {
+            zoomVal.textContent = `${viewport.getZoomPercent()}%`;
+        }
+
+        const viewport = createViewport({
+            viewportEl: previewViewport,
+            canvasEl: previewCanvas,
+            imageEl: sourceImage,
+            onViewChange() {
+                overlay.refresh();
+                updateZoomLabel();
+            }
+        });
+
         const overlay = createCropOverlay({
-            stageEl: document.getElementById('previewStage'),
+            stageEl: previewCanvas,
+            viewportEl: previewViewport,
+            viewport,
             imageEl: sourceImage,
             inputs,
+            pixelGridToggle,
             onRectChange(rect) {
                 outSizeVal.textContent = `${rect.width} x ${rect.height}`;
             }
         });
+
+        pixelGridToggle.addEventListener('change', () => {
+            pixelGridToggle.dataset.userTouched = '1';
+            overlay.refresh();
+        });
+
+        btnZoomIn.addEventListener('click', () => viewport.zoomIn());
+        btnZoomOut.addEventListener('click', () => viewport.zoomOut());
+        btnFitView.addEventListener('click', () => viewport.fitToView());
 
         let selectedFile = null;
         let sourceMeta = null;
@@ -564,6 +675,7 @@
                 sizeVal.textContent = `${sourceMeta.width} x ${sourceMeta.height}`;
                 frameVal.textContent = `${sourceMeta.frameCount} 帧`;
                 updatePreviewLayoutByRatio(sourceMeta);
+                viewport.setImageSize(sourceMeta.width, sourceMeta.height);
                 overlay.setImageSize(sourceMeta.width, sourceMeta.height);
                 overlay.setRect({
                     x: 0,

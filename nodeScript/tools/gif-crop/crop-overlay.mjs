@@ -1,5 +1,5 @@
 /**
- * GIF 预览区裁剪框控制器（支持拖拽移动与 8 向缩放）。
+ * GIF 预览区裁剪框控制器（支持拖拽移动、8 向缩放、视口缩放与像素吸附）。
  */
 
 /**
@@ -9,20 +9,34 @@
 /**
  * @param {{
  *   stageEl: HTMLElement,
+ *   viewportEl: HTMLElement,
  *   imageEl: HTMLImageElement,
+ *   viewport: ReturnType<typeof import('./viewport.mjs').createViewport>,
  *   inputs: { x: HTMLInputElement, y: HTMLInputElement, width: HTMLInputElement, height: HTMLInputElement },
+ *   pixelGridToggle?: HTMLInputElement,
  *   onRectChange?: (rect: CropRect) => void
  * }} options
  */
 export function createCropOverlay(options) {
-  const { stageEl, imageEl, inputs, onRectChange } = options;
+  const { stageEl, viewportEl, imageEl, viewport, inputs, pixelGridToggle, onRectChange } = options;
   let naturalW = 0;
   let naturalH = 0;
   /** @type {CropRect} */
   let rect = { x: 0, y: 0, width: 1, height: 1 };
   let muteInputSync = false;
   let activePointer = null;
+  /** @type {{
+   *   mode: string,
+   *   grabOffsetX: number,
+   *   grabOffsetY: number,
+   *   startRect: CropRect
+   * } | null} */
   let dragState = null;
+
+  const pixelGrid = document.createElement('div');
+  pixelGrid.className = 'pixel-grid';
+  pixelGrid.hidden = true;
+  stageEl.insertBefore(pixelGrid, stageEl.firstChild);
 
   const overlay = document.createElement('div');
   overlay.className = 'crop-overlay';
@@ -45,9 +59,12 @@ export function createCropOverlay(options) {
   const resizeObserver = new ResizeObserver(() => render());
   resizeObserver.observe(stageEl);
   resizeObserver.observe(imageEl);
+  resizeObserver.observe(viewportEl);
 
   imageEl.addEventListener('load', () => render());
   window.addEventListener('resize', render);
+
+  pixelGridToggle?.addEventListener('change', () => updatePixelGrid());
 
   for (const input of Object.values(inputs)) {
     input.addEventListener('input', () => {
@@ -62,22 +79,20 @@ export function createCropOverlay(options) {
   }
 
   selectionEl.addEventListener('pointerdown', (event) => {
-    if (naturalW <= 0 || naturalH <= 0) return;
+    if (naturalW <= 0 || naturalH <= 0 || viewport.isPanMode()) return;
 
     const target = /** @type {HTMLElement} */ (event.target);
     const handle = target.dataset.handle || '';
     const mode = handle || 'move';
-    const imageBox = getImageBox();
-    if (!imageBox) return;
+    const pointer = viewport.screenToImage(event.clientX, event.clientY);
 
     activePointer = event.pointerId;
     selectionEl.setPointerCapture(activePointer);
     dragState = {
       mode,
-      startX: event.clientX,
-      startY: event.clientY,
-      startRect: { ...rect },
-      imageBox
+      grabOffsetX: pointer.x - rect.x,
+      grabOffsetY: pointer.y - rect.y,
+      startRect: { ...rect }
     };
     event.preventDefault();
   });
@@ -87,12 +102,9 @@ export function createCropOverlay(options) {
       return;
     }
 
-    const { imageBox, startRect, mode, startX, startY } = dragState;
-    const dxPx = event.clientX - startX;
-    const dyPx = event.clientY - startY;
-    const dx = Math.round((dxPx / imageBox.width) * naturalW);
-    const dy = Math.round((dyPx / imageBox.height) * naturalH);
-    rect = calculateDraggedRect(startRect, mode, dx, dy);
+    const { mode, grabOffsetX, grabOffsetY, startRect } = dragState;
+    const pointer = viewport.screenToImage(event.clientX, event.clientY);
+    rect = calculatePointerRect(mode, pointer, grabOffsetX, grabOffsetY, startRect);
     syncInputs();
     render();
     onRectChange?.(rect);
@@ -118,22 +130,17 @@ export function createCropOverlay(options) {
   }
 
   /**
-   * 读取图片在 stage 内的实际显示区域（处理居中留白）。
+   * 读取图片在 stage 本地坐标系内的布局区域（不受 canvas scale 变换影响）。
    */
   function getImageBox() {
     if (!imageEl.naturalWidth || !imageEl.naturalHeight) return null;
-    const stageBox = stageEl.getBoundingClientRect();
-    const imageBox = imageEl.getBoundingClientRect();
-    return {
-      left: imageBox.left - stageBox.left,
-      top: imageBox.top - stageBox.top,
-      width: imageBox.width,
-      height: imageBox.height
-    };
+    const width = imageEl.offsetWidth;
+    const height = imageEl.offsetHeight;
+    if (!width || !height) return null;
+    return { left: 0, top: 0, width, height };
   }
 
   /**
-   * 统一裁剪框边界，确保结果始终在原图范围内且宽高 >= 1。
    * @param {CropRect} input
    * @returns {CropRect}
    */
@@ -145,11 +152,20 @@ export function createCropOverlay(options) {
     return { x, y, width, height };
   }
 
-  function calculateDraggedRect(startRect, mode, dx, dy) {
+  /**
+   * 绝对指针位置驱动裁剪框（含像素吸附）。
+   */
+  function calculatePointerRect(mode, pointer, grabOffsetX, grabOffsetY, startRect) {
     if (mode === 'move') {
+      const moved = viewport.snapMoveRect(
+        pointer.x - grabOffsetX,
+        pointer.y - grabOffsetY,
+        startRect.width,
+        startRect.height
+      );
       return clampRect({
-        x: startRect.x + dx,
-        y: startRect.y + dy,
+        x: moved.x,
+        y: moved.y,
         width: startRect.width,
         height: startRect.height
       });
@@ -160,10 +176,18 @@ export function createCropOverlay(options) {
     let right = startRect.x + startRect.width;
     let bottom = startRect.y + startRect.height;
 
-    if (mode.includes('w')) left += dx;
-    if (mode.includes('e')) right += dx;
-    if (mode.includes('n')) top += dy;
-    if (mode.includes('s')) bottom += dy;
+    if (mode.includes('w')) {
+      left = viewport.snapImageCoord(pointer.x, naturalW, 'start');
+    }
+    if (mode.includes('e')) {
+      right = viewport.snapImageCoord(pointer.x, naturalW, 'end');
+    }
+    if (mode.includes('n')) {
+      top = viewport.snapImageCoordY(pointer.y, naturalH, 'start');
+    }
+    if (mode.includes('s')) {
+      bottom = viewport.snapImageCoordY(pointer.y, naturalH, 'end');
+    }
 
     left = clampInt(left, 0, naturalW - 1);
     right = clampInt(right, left + 1, naturalW);
@@ -187,16 +211,38 @@ export function createCropOverlay(options) {
     muteInputSync = false;
   }
 
+  function updatePixelGrid() {
+    const zoom = viewport.getZoom();
+    const userEnabled = pixelGridToggle ? pixelGridToggle.checked : true;
+    const autoShow = zoom >= 2;
+    const show = userEnabled && autoShow && naturalW > 0;
+
+    if (pixelGridToggle && autoShow && !pixelGridToggle.dataset.userTouched) {
+      pixelGridToggle.checked = true;
+    }
+
+    pixelGrid.hidden = !show;
+    if (show) {
+      const fitScale = viewport.getFitScale();
+      pixelGrid.style.backgroundSize = `${fitScale}px ${fitScale}px`;
+    }
+  }
+
   function render() {
     const imageBox = getImageBox();
     if (!imageBox || naturalW <= 0 || naturalH <= 0) {
       overlay.style.display = 'none';
+      pixelGrid.hidden = true;
       return;
     }
     overlay.style.display = 'block';
 
-    const left = imageBox.left + (rect.x / naturalW) * imageBox.width;
-    const top = imageBox.top + (rect.y / naturalH) * imageBox.height;
+    const panMode = viewport.isPanMode();
+    overlay.style.pointerEvents = panMode ? 'none' : 'auto';
+    selectionEl.style.pointerEvents = panMode ? 'none' : 'auto';
+
+    const left = (rect.x / naturalW) * imageBox.width;
+    const top = (rect.y / naturalH) * imageBox.height;
     const width = (rect.width / naturalW) * imageBox.width;
     const height = (rect.height / naturalH) * imageBox.height;
 
@@ -204,6 +250,8 @@ export function createCropOverlay(options) {
     selectionEl.style.top = `${top}px`;
     selectionEl.style.width = `${Math.max(1, width)}px`;
     selectionEl.style.height = `${Math.max(1, height)}px`;
+
+    updatePixelGrid();
   }
 
   return {
@@ -241,9 +289,13 @@ export function createCropOverlay(options) {
     getRect() {
       return { ...rect };
     },
+    refresh() {
+      render();
+    },
     destroy() {
       resizeObserver.disconnect();
       window.removeEventListener('resize', render);
+      pixelGrid.remove();
       overlay.remove();
     }
   };
