@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片转Base64工具</title>
+  <script src="../js/nav.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    #dropZone {
+      border: 2px dashed #ccc;
+      border-radius: 10px;
+      padding: 30px;
+      text-align: center;
+      margin: 20px 0;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    #dropZone.dragover {
+      border-color: #2196F3;
+      background-color: #f5f9ff;
+    }
+
+    #preview {
+      display: block;
+      max-width: 100%;
+      max-height: 300px;
+      margin: 20px auto;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+
+    .file-info {
+      color: #666;
+      font-size: 0.9rem;
+      margin-bottom: 10px;
+    }
+
+    .options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin: 16px 0;
+      align-items: center;
+    }
+
+    .options label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    textarea {
+      width: 100%;
+      height: 200px;
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #1976D2;
+    }
+
+    button:disabled {
+      background: #bbb;
+      cursor: not-allowed;
+    }
+
+    .tip {
+      color: #888;
+      font-size: 0.85rem;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>图片转 Base64 工具</h1>
+    <p>支持 PNG、JPG、GIF、WebP、SVG 等常见图片格式，可拖放或点击选择文件。</p>
+
+    <div id="dropZone">
+      将图片拖放到此处，或点击选择文件
+      <input type="file" id="fileInput" accept="image/*" hidden>
+    </div>
+
+    <img id="preview" alt="图片预览" style="display: none;">
+    <div id="fileInfo" class="file-info"></div>
+
+    <div class="options">
+      <label>
+        <input type="checkbox" id="includePrefix" checked>
+        包含 Data URL 前缀（data:image/...;base64,）
+      </label>
+      <label>
+        <input type="checkbox" id="lineBreak">
+        每 76 字符换行
+      </label>
+    </div>
+
+    <textarea id="base64Output" readonly placeholder="转换结果将显示在这里"></textarea>
+
+    <div class="buttons">
+      <button id="copyBtn" disabled>复制结果</button>
+      <button id="downloadBtn" disabled>下载 .txt</button>
+      <button id="clearBtn">清空</button>
+    </div>
+    <p class="tip">提示：大图片转换后字符串较长，复制或下载前请确认目标场景是否支持。</p>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+    const fileInfo = document.getElementById('fileInfo');
+    const base64Output = document.getElementById('base64Output');
+    const includePrefix = document.getElementById('includePrefix');
+    const lineBreak = document.getElementById('lineBreak');
+    const copyBtn = document.getElementById('copyBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    /** @type {string} 原始 Data URL */
+    let rawDataUrl = '';
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', handleDrop);
+    fileInput.addEventListener('change', handleFileSelect);
+    includePrefix.addEventListener('change', updateOutput);
+    lineBreak.addEventListener('change', updateOutput);
+    copyBtn.addEventListener('click', copyResult);
+    downloadBtn.addEventListener('click', downloadResult);
+    clearBtn.addEventListener('click', clearAll);
+
+    /**
+     * 处理拖放文件
+     * @param {DragEvent} e
+     */
+    function handleDrop(e) {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        processImage(file);
+      }
+    }
+
+    /**
+     * 处理文件选择
+     * @param {Event} e
+     */
+    function handleFileSelect(e) {
+      const file = e.target.files[0];
+      if (file) {
+        processImage(file);
+      }
+    }
+
+    /**
+     * 读取图片并转为 Base64
+     * @param {File} file
+     */
+    function processImage(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        rawDataUrl = e.target.result;
+        preview.src = rawDataUrl;
+        preview.style.display = 'block';
+        fileInfo.textContent = `文件名：${file.name} | 大小：${formatSize(file.size)} | 类型：${file.type || '未知'}`;
+        updateOutput();
+        copyBtn.disabled = false;
+        downloadBtn.disabled = false;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    /**
+     * 按选项格式化 Base64 输出
+     */
+    function updateOutput() {
+      if (!rawDataUrl) {
+        base64Output.value = '';
+        return;
+      }
+
+      let result = rawDataUrl;
+      if (!includePrefix.checked) {
+        const commaIndex = rawDataUrl.indexOf(',');
+        result = commaIndex >= 0 ? rawDataUrl.slice(commaIndex + 1) : rawDataUrl;
+      }
+
+      if (lineBreak.checked) {
+        result = wrapBase64(result, 76);
+      }
+
+      base64Output.value = result;
+    }
+
+    /**
+     * 按指定长度插入换行
+     * @param {string} str
+     * @param {number} width
+     * @returns {string}
+     */
+    function wrapBase64(str, width) {
+      const lines = [];
+      for (let i = 0; i < str.length; i += width) {
+        lines.push(str.slice(i, i + width));
+      }
+      return lines.join('\n');
+    }
+
+    /**
+     * 格式化文件大小
+     * @param {number} bytes
+     * @returns {string}
+     */
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    /** 复制 Base64 结果到剪贴板 */
+    async function copyResult() {
+      const text = base64Output.value;
+      if (!text) return;
+
+      try {
+        await navigator.clipboard.writeText(text);
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = '已复制';
+        setTimeout(() => {
+          copyBtn.textContent = originalText;
+        }, 1500);
+      } catch {
+        base64Output.select();
+        document.execCommand('copy');
+        alert('已复制到剪贴板');
+      }
+    }
+
+    /** 下载 Base64 结果为 txt 文件 */
+    function downloadResult() {
+      const text = base64Output.value;
+      if (!text) return;
+
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = 'image-base64.txt';
+      link.href = url;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    /** 清空当前状态 */
+    function clearAll() {
+      rawDataUrl = '';
+      preview.src = '';
+      preview.style.display = 'none';
+      fileInfo.textContent = '';
+      base64Output.value = '';
+      fileInput.value = '';
+      copyBtn.disabled = true;
+      downloadBtn.disabled = true;
+    }
+  </script>
+</body>
+
+</html>

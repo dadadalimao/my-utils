@@ -26,7 +26,8 @@
         { id: 'wordToHtml', name: 'Word文档转换器', file: 'wordToHtml.html', icon: '📄' },
         { id: 'wordToRich', name: '富文本转换器', file: 'wordToRich.html', icon: '✍️' },
         { id: 'objArrayToExcel', name: '数组转Excel生成器', file: 'objArrayToExcel.html', icon: '📊' },
-        { id: 'batchCanvas', name: '图片批量画布处理器', file: '批量画布调整.html', icon: '🖌️' }
+        { id: 'batchCanvas', name: '图片批量画布处理器', file: '批量画布调整.html', icon: '🖌️' },
+        { id: 'imageToBase64', name: '图片转Base64工具', file: 'imageToBase64.html', icon: '🔤' }
     ];
 
     const tools = toolDefs.map((t) => ({
