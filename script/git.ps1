@@ -14,7 +14,10 @@ if (-not (Test-Path $scriptDir)) {
 
 # 从 script/git 目录自动读取 .ps1 脚本列表，描述取自脚本内首行 "# 功能：xxx"
 function Get-ScriptList {
-    $files = Get-ChildItem -Path $scriptDir -Filter "*.ps1" -File | Sort-Object Name
+    # 以 _ 开头的脚本为内部模块，不在菜单中展示
+    $files = Get-ChildItem -Path $scriptDir -Filter "*.ps1" -File |
+        Where-Object { -not $_.Name.StartsWith('_') } |
+        Sort-Object Name
     $list = [System.Collections.ArrayList]::new()
     $index = 1
     foreach ($f in $files) {
