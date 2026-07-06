@@ -9,6 +9,77 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Initialize-GitUtf8Environment {
+    # 确保 Git 与 PowerShell 在 Windows 下正确处理中文分支名等非 ASCII 字符
+    $utf8 = [System.Text.Encoding]::UTF8
+    try {
+        [Console]::OutputEncoding = $utf8
+        [Console]::InputEncoding = $utf8
+    }
+    catch {
+        # 部分环境（如 CI）可能没有控制台
+    }
+    $OutputEncoding = $utf8
+}
+
+function Get-CurrentGitBranch {
+    # 从 .git/HEAD 直接读取 UTF-8 分支名，避免 PowerShell 捕获 git stdout 时的编码乱码
+    $gitDir = (git rev-parse --git-dir 2>$null).Trim()
+    if (-not $gitDir -or $LASTEXITCODE -ne 0) {
+        return $null
+    }
+
+    $headPath = Join-Path $gitDir "HEAD"
+    if (-not (Test-Path -LiteralPath $headPath)) {
+        return $null
+    }
+
+    $headContent = [System.IO.File]::ReadAllText($headPath).Trim()
+    if ($headContent -match '^ref:\s*refs/heads/(.+)$') {
+        return $matches[1].Trim()
+    }
+
+    # detached HEAD 时回退到 git 命令
+    $abbrev = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+    if ($abbrev -and $abbrev -ne "HEAD") {
+        return $abbrev
+    }
+    return $null
+}
+
+function Test-BranchNeedsPush {
+    param(
+        [string]$RemoteName
+    )
+
+    # 使用 @{u} 与 HEAD 等 Git 内部引用，避免依赖可能乱码的分支名字符串
+    $prevErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $null = git rev-parse --verify "@{u}" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return @{ NeedsPush = $true; Reason = "远端尚无该分支" }
+        }
+
+        $aheadCountStr = git rev-list --count "@{u}..HEAD" 2>$null
+        if ($LASTEXITCODE -ne 0 -or $aheadCountStr -notmatch '^\d+$') {
+            return @{ NeedsPush = $true; Reason = "无法判断与远端的差异" }
+        }
+
+        $aheadCount = [int]$aheadCountStr
+        if ($aheadCount -gt 0) {
+            return @{ NeedsPush = $true; Reason = "领先远端 $aheadCount 个提交" }
+        }
+
+        return @{ NeedsPush = $false; Reason = $null }
+    }
+    finally {
+        $ErrorActionPreference = $prevErrorActionPreference
+    }
+}
+
+Initialize-GitUtf8Environment
+
 Write-Host "===========================================" -ForegroundColor Cyan
 Write-Host "Git 合并脚本 - 调试模式" -ForegroundColor Cyan
 Write-Host "===========================================" -ForegroundColor Cyan
@@ -81,10 +152,10 @@ function Invoke-MergeWithFallbackCommit {
 }
 
 try {
-    # 获取当前分支
+    # 获取当前分支（从 .git/HEAD 读取，避免中文分支名乱码）
     Write-Host "[调试] 正在获取当前分支..." -ForegroundColor Yellow
-    Write-Host "[命令] git rev-parse --abbrev-ref HEAD" -ForegroundColor DarkGray
-    $CURRENT_BRANCH = git rev-parse --abbrev-ref HEAD
+    Write-Host "[命令] 读取 .git/HEAD" -ForegroundColor DarkGray
+    $CURRENT_BRANCH = Get-CurrentGitBranch
     if (-not $CURRENT_BRANCH) {
         Write-Host "错误: 无法获取当前分支" -ForegroundColor Red
         exit 1
@@ -128,35 +199,12 @@ try {
     # 可选：检查当前分支是否已推送到远端，未推送则先推送
     if (-not $SkipPushCurrent) {
         Write-Host "[调试] 正在检查当前分支是否已推送到远端..." -ForegroundColor Yellow
-        $remoteExists = $false
-        $remoteTrackingRef = "refs/remotes/$REMOTE_NAME/$CURRENT_BRANCH"
-        $aheadCount = 0
-
-        # 在 PowerShell 的 $ErrorActionPreference=Stop 下，git rev-parse 失败可能会被当作致命错误。
-        # 这里改用 show-ref --verify --quiet，并在本段落内临时降级错误策略。
-        $prevErrorActionPreference = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        try {
-            $null = git show-ref --verify --quiet "$remoteTrackingRef" 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                $remoteExists = $true
-            }
-
-            if ($remoteExists) {
-                $aheadCountStr = git rev-list --count "$REMOTE_NAME/$CURRENT_BRANCH..HEAD" 2>$null
-                if ($LASTEXITCODE -eq 0 -and $aheadCountStr -match '^\d+$') {
-                    $aheadCount = [int]$aheadCountStr
-                }
-            }
-        }
-        finally {
-            $ErrorActionPreference = $prevErrorActionPreference
-        }
-        if (-not $remoteExists -or $aheadCount -gt 0) {
-            $reason = if (-not $remoteExists) { "远端尚无该分支" } else { "领先远端 $aheadCount 个提交" }
-            Write-Host "当前分支 $CURRENT_BRANCH 未完全推送到 $REMOTE_NAME ($reason)，正在推送..." -ForegroundColor Yellow
-            Write-Host "[命令] git push -u $REMOTE_NAME $CURRENT_BRANCH" -ForegroundColor DarkGray
-            git push -u $REMOTE_NAME $CURRENT_BRANCH
+        $pushStatus = Test-BranchNeedsPush -RemoteName $REMOTE_NAME
+        if ($pushStatus.NeedsPush) {
+            Write-Host "当前分支 $CURRENT_BRANCH 未完全推送到 $REMOTE_NAME ($($pushStatus.Reason))，正在推送..." -ForegroundColor Yellow
+            # 使用 HEAD 推送，由 Git 内部解析当前分支名，避免中文分支名在命令行传参时乱码
+            Write-Host "[命令] git push -u $REMOTE_NAME HEAD" -ForegroundColor DarkGray
+            git push -u $REMOTE_NAME HEAD
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "错误: 推送当前分支失败" -ForegroundColor Red
                 exit 1
@@ -340,8 +388,8 @@ catch {
     # 如果暂存了，尝试恢复
     if ($hasStashed) {
         Write-Host "正在尝试恢复暂存的更改..." -ForegroundColor Yellow
-        $currentBranchCheck = git rev-parse --abbrev-ref HEAD 2>&1
-        if ($LASTEXITCODE -eq 0 -and $currentBranchCheck -eq $CURRENT_BRANCH) {
+        $currentBranchCheck = Get-CurrentGitBranch
+        if ($currentBranchCheck -eq $CURRENT_BRANCH) {
             git stash pop 2>&1 | Out-Null
         }
         else {
