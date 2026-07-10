@@ -15,3 +15,6 @@ nodeScript/.cache/
 nodeScript/assets/fonts/*
 !nodeScript/assets/fonts/.gitkeep
 nodeScript/.yarn/
+
+AutoHotkey
+wxminiprogram
