@@ -18,3 +18,8 @@ nodeScript/.yarn/
 
 AutoHotkey
 wxminiprogram
+# Office skills 本地依赖
+.cursor/office/node_modules/
+.cursor/office/.venv/
+.cursor/office/临时文件
+

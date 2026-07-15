@@ -1,0 +1,19 @@
+﻿{
+    "name":  "office-skills",
+    "version":  "1.0.0",
+    "description":  "Office document skills deps (from tfriedel/claude-office-skills, plus docx)",
+    "private":  true,
+    "type":  "module",
+    "dependencies":  {
+                         "docx":  "^9.5.0",
+                         "pptxgenjs":  "^4.0.1",
+                         "playwright":  "^1.49.0",
+                         "react":  "^19.0.0",
+                         "react-dom":  "^19.0.0",
+                         "react-icons":  "^5.4.0",
+                         "sharp":  "^0.33.5"
+                     },
+    "scripts":  {
+                    "postinstall":  "playwright install chromium"
+                }
+}
