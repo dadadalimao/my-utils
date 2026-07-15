@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cursor用量数据</title>
+    <script src="../js/nav.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 96%;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            background: #fff;
+            padding: 24px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+        }
+
+        h2 {
+            margin: 0 0 8px;
+        }
+
+        .desc {
+            color: #666;
+            margin: 0 0 20px;
+            font-size: 0.95rem;
+        }
+
+        #dropZone {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 28px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            color: #666;
+        }
+
+        #dropZone.dragover {
+            border-color: #2196F3;
+            background: #f5f9ff;
+            color: #1565c0;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .error {
+            color: #c62828;
+            margin-top: 12px;
+            font-size: 0.9rem;
+        }
+
+        #result {
+            display: none;
+            margin-top: 24px;
+        }
+
+        .file-meta {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 16px;
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .stat-card {
+            background: #f8fafc;
+            border: 1px solid #e8eef5;
+            border-radius: 8px;
+            padding: 14px 16px;
+        }
+
+        .stat-card .label {
+            font-size: 0.8rem;
+            color: #667085;
+            margin-bottom: 6px;
+        }
+
+        .stat-card .value {
+            font-size: 1.15rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            word-break: break-all;
+        }
+
+        .rates {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .rate-card {
+            border-radius: 8px;
+            padding: 16px 18px;
+            border: 1px solid transparent;
+        }
+
+        .rate-card.hit {
+            background: #e8f5e9;
+            border-color: #c8e6c9;
+        }
+
+        .rate-card.output {
+            background: #fff8e1;
+            border-color: #ffe082;
+        }
+
+        .rate-card .label {
+            font-size: 0.85rem;
+            color: #555;
+            margin-bottom: 6px;
+        }
+
+        .rate-card .value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .rate-card .hint {
+            margin-top: 6px;
+            font-size: 0.75rem;
+            color: #777;
+        }
+
+        .table-wrap {
+            overflow: auto;
+            max-height: 60vh;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            background: #eef2f7;
+            z-index: 1;
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 1px solid #d0d7de;
+            font-weight: 600;
+        }
+
+        tbody td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #f0f0f0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        tbody tr:hover {
+            background: #f7fafc;
+        }
+
+        td.num {
+            text-align: right;
+            font-family: Consolas, monospace;
+        }
+
+        .table-caption {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+        }
+
+        .table-caption h3 {
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .table-caption span {
+            color: #888;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>Cursor用量数据</h2>
+        <p class="desc">上传 Cursor Usage Events（用量事件）导出的 CSV，在表格上方展示 Token（令牌）总计、缓存命中率与输出率。</p>
+
+        <div id="dropZone">
+            点击或拖拽上传 CSV 文件<br>
+            <small>支持 usage-events-*.csv（用量事件导出文件）</small>
+        </div>
+        <input type="file" id="fileInput" accept=".csv,text/csv">
+        <div id="error" class="error"></div>
+
+        <div id="result">
+            <div id="fileMeta" class="file-meta"></div>
+
+            <div class="rates" id="rates"></div>
+            <div class="summary" id="summary"></div>
+
+            <div class="table-caption">
+                <h3>明细数据</h3>
+                <span id="rowCount"></span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead id="thead"></thead>
+                    <tbody id="tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /** Token 数值列名（与 Cursor CSV 表头一致） */
+        const NUM_COLS = [
+            'Input (w/ Cache Write)',
+            'Input (w/o Cache Write)',
+            'Cache Read',
+            'Output Tokens',
+            'Total Tokens'
+        ];
+
+        /** 英文表头 → 中文释义（展示用，括号内） */
+        const COL_ZH = {
+            Date: '日期',
+            'Cloud Agent ID': '云端 Agent ID',
+            'Automation ID': '自动化 ID',
+            Kind: '类型',
+            Model: '模型',
+            'Max Mode': 'Max 模式',
+            'Input (w/ Cache Write)': '含缓存写入的输入',
+            'Input (w/o Cache Write)': '不含缓存写入的输入',
+            'Cache Read': '缓存读取',
+            'Output Tokens': '输出令牌',
+            'Total Tokens': '总令牌',
+            Cost: '费用'
+        };
+
+        /**
+         * 表头展示：原文（中文）
+         * @param {string} header
+         */
+        function labelOf(header) {
+            const zh = COL_ZH[header];
+            return zh ? `${header}（${zh}）` : header;
+        }
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const errorEl = document.getElementById('error');
+        const resultEl = document.getElementById('result');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files[0]) handleFile(fileInput.files[0]);
+        });
+
+        /**
+         * 解析 CSV 文本（支持引号包裹字段）
+         * @param {string} text
+         * @returns {{ headers: string[], rows: string[][] }}
+         */
+        function parseCsv(text) {
+            const rows = [];
+            let row = [];
+            let field = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < text.length; i++) {
+                const ch = text[i];
+                const next = text[i + 1];
+
+                if (inQuotes) {
+                    if (ch === '"' && next === '"') {
+                        field += '"';
+                        i++;
+                    } else if (ch === '"') {
+                        inQuotes = false;
+                    } else {
+                        field += ch;
+                    }
+                    continue;
+                }
+
+                if (ch === '"') {
+                    inQuotes = true;
+                } else if (ch === ',') {
+                    row.push(field);
+                    field = '';
+                } else if (ch === '\n') {
+                    row.push(field);
+                    rows.push(row);
+                    row = [];
+                    field = '';
+                } else if (ch === '\r') {
+                    // CRLF：忽略 \r
+                } else {
+                    field += ch;
+                }
+            }
+
+            if (field.length || row.length) {
+                row.push(field);
+                rows.push(row);
+            }
+
+            // 去掉末尾空行
+            while (rows.length && rows[rows.length - 1].every((c) => c === '')) {
+                rows.pop();
+            }
+
+            if (rows.length < 2) {
+                throw new Error('CSV 内容为空或缺少数据行');
+            }
+
+            return { headers: rows[0], rows: rows.slice(1) };
+        }
+
+        /** @param {string} v */
+        function toNum(v) {
+            const s = String(v ?? '').trim();
+            if (!s) return 0;
+            const n = Number(s);
+            return Number.isFinite(n) ? n : 0;
+        }
+
+        /** @param {number} n */
+        function formatInt(n) {
+            return Math.round(n).toLocaleString('en-US');
+        }
+
+        /**
+         * ISO 日期格式化为本地可读时间，如 2026-07-15 10:40:10
+         * @param {string} value
+         */
+        function formatDate(value) {
+            const s = String(value ?? '').trim();
+            if (!s) return '';
+            const d = new Date(s);
+            if (Number.isNaN(d.getTime())) return s;
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+
+        /** @param {number} ratio */
+        function formatPct(ratio) {
+            if (!Number.isFinite(ratio)) return '-';
+            return (ratio * 100).toFixed(1) + '%';
+        }
+
+        /**
+         * @param {File} file
+         */
+        function handleFile(file) {
+            errorEl.textContent = '';
+            if (!/\.csv$/i.test(file.name) && file.type !== 'text/csv') {
+                errorEl.textContent = '请上传 CSV 文件';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    render(parseCsv(String(reader.result)), file);
+                } catch (e) {
+                    resultEl.style.display = 'none';
+                    errorEl.textContent = `解析失败：${e.message}`;
+                }
+            };
+            reader.onerror = () => {
+                errorEl.textContent = '文件读取失败';
+            };
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        /**
+         * @param {{ headers: string[], rows: string[][] }} data
+         * @param {File} file
+         */
+        function render(data, file) {
+            const { headers, rows } = data;
+            const colIndex = Object.fromEntries(headers.map((h, i) => [h, i]));
+
+            for (const col of NUM_COLS) {
+                if (!(col in colIndex)) {
+                    throw new Error(`缺少列：${col}`);
+                }
+            }
+
+            const totals = {};
+            for (const col of NUM_COLS) {
+                let sum = 0;
+                const idx = colIndex[col];
+                for (const row of rows) {
+                    sum += toNum(row[idx]);
+                }
+                totals[col] = sum;
+            }
+
+            const inputPool =
+                totals['Input (w/ Cache Write)'] +
+                totals['Input (w/o Cache Write)'] +
+                totals['Cache Read'];
+            const cacheHitRate = inputPool === 0 ? NaN : totals['Cache Read'] / inputPool;
+            const outputRate =
+                totals['Total Tokens'] === 0
+                    ? NaN
+                    : totals['Output Tokens'] / totals['Total Tokens'];
+
+            document.getElementById('fileMeta').textContent =
+                `文件：${file.name} · ${(file.size / 1024).toFixed(1)} KB · ${rows.length} 条事件`;
+
+            document.getElementById('rates').innerHTML = `
+                <div class="rate-card hit">
+                    <div class="label">缓存命中率</div>
+                    <div class="value">${formatPct(cacheHitRate)}</div>
+                    <div class="hint">Cache Read（缓存读取）÷ 三项 Input（输入）合计</div>
+                </div>
+                <div class="rate-card output">
+                    <div class="label">输出率（Output / Total）</div>
+                    <div class="value">${formatPct(outputRate)}</div>
+                    <div class="hint">Output Tokens（输出令牌）÷ Total Tokens（总令牌）</div>
+                </div>
+            `;
+
+            document.getElementById('summary').innerHTML = NUM_COLS.map(
+                (col) => `
+                <div class="stat-card">
+                    <div class="label">${escapeHtml(labelOf(col))}</div>
+                    <div class="value">${formatInt(totals[col])}</div>
+                </div>`
+            ).join('');
+
+            document.getElementById('rowCount').textContent = `共 ${rows.length} 行`;
+
+            document.getElementById('thead').innerHTML =
+                '<tr>' + headers.map((h) => `<th>${escapeHtml(labelOf(h))}</th>`).join('') + '</tr>';
+
+            const numSet = new Set(NUM_COLS);
+            document.getElementById('tbody').innerHTML = rows
+                .map((row) => {
+                    const cells = headers
+                        .map((h, i) => {
+                            const raw = row[i] ?? '';
+                            if (h === 'Date') {
+                                return `<td>${escapeHtml(formatDate(raw))}</td>`;
+                            }
+                            if (numSet.has(h)) {
+                                return `<td class="num">${formatInt(toNum(raw))}</td>`;
+                            }
+                            return `<td>${escapeHtml(raw)}</td>`;
+                        })
+                        .join('');
+                    return `<tr>${cells}</tr>`;
+                })
+                .join('');
+
+            resultEl.style.display = 'block';
+        }
+
+        /** @param {string} s */
+        function escapeHtml(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+    </script>
+</body>
+
+</html>
