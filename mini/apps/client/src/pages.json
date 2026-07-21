@@ -1,0 +1,46 @@
+{
+  "pages": [
+    {
+      "path": "pages/novels/index",
+      "style": {
+        "navigationBarTitleText": "我的小说"
+      }
+    },
+    {
+      "path": "pages/workbench/index",
+      "style": {
+        "navigationBarTitleText": "写作工作台"
+      }
+    },
+    {
+      "path": "pages/chapters/index",
+      "style": {
+        "navigationBarTitleText": "章节列表"
+      }
+    },
+    {
+      "path": "pages/chapter-detail/index",
+      "style": {
+        "navigationBarTitleText": "章节详情"
+      }
+    },
+    {
+      "path": "pages/settings/index",
+      "style": {
+        "navigationBarTitleText": "设置"
+      }
+    },
+    {
+      "path": "pages/auth/index",
+      "style": {
+        "navigationBarTitleText": "登录 / 注册"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "AI写小说",
+    "navigationBarBackgroundColor": "#F7F4EF",
+    "backgroundColor": "#F7F4EF"
+  }
+}

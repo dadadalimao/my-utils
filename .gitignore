@@ -23,3 +23,11 @@ wxminiprogram
 .cursor/office/.venv/
 .cursor/office/临时文件
 
+# mini（AI 写小说）本地依赖与构建产物、密钥、数据库
+mini/apps/**/node_modules/
+mini/apps/**/dist/
+mini/apps/**/.env
+mini/apps/**/.env.local
+mini/apps/server/prisma/*.db
+mini/apps/server/prisma/*.db-journal
+mini/apps/**/*.log
