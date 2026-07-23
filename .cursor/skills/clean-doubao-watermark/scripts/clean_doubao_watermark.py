@@ -3,8 +3,8 @@
 """
 清理豆包（Doubao）视频水印。
 
-针对「豆包AI生成」类角标：位置在左上 / 右下切换，带进出场动效、样式可变。
-采用双角 ROI 残差检测 + 时序膨胀 + 干净帧中位数底板合成（适合棚景固定机位）。
+针对「豆包AI生成」类角标：左上/右下切换、带进出场。
+用角区残差选干净底板，然后全程整块覆盖左上+右下 ROI（不做按帧开关）。
 
 示例:
   python .cursor/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "video.mp4"
@@ -34,10 +34,10 @@ class CornerRoi:
     box: tuple[float, float, float, float]
 
 
-# 豆包水印常见落点：左上 / 右下（合成时仅替换浅色背景像素，可略放大右下 ROI）
+# 豆包水印常见落点：左上 / 右下（激活时整块 ROI 覆盖，靠区域框避开人物）
 DOUBAO_CORNERS: tuple[CornerRoi, ...] = (
-    CornerRoi("tl", (0.015, 0.01, 0.48, 0.14)),
-    CornerRoi("br", (0.42, 0.875, 0.99, 0.995)),
+    CornerRoi("tl", (0.02, 0.01, 0.38, 0.10)),
+    CornerRoi("br", (0.58, 0.88, 0.99, 0.995)),
 )
 
 
@@ -111,13 +111,6 @@ def detect_frame_scores(
     """返回各角区综合分数（取 mean 与归一化后的 p95 的较大者）。"""
     h, w = frame_bgr.shape[:2]
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    lab = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2LAB)
-    L, a, b = cv2.split(lab)
-    bg_like = (
-        (L > 155)
-        & (np.abs(a.astype(np.int16) - 128) < 18)
-        & (np.abs(b.astype(np.int16) - 128) < 18)
-    )
     scores: dict[str, float] = {}
     for corner in corners:
         x0, y0, x1, y1 = _roi_abs(corner.box, w, h)
@@ -125,9 +118,7 @@ def detect_frame_scores(
         if roi.size == 0:
             scores[corner.name] = 0.0
             continue
-        bg = bg_like[y0:y1, x0:x1]
-        # 右下可能含脚部：仅在背景像素上计分；左上一般为空，同样更稳
-        mean_v, p95_v = corner_score(roi, cfg.blur_ksize, bg)
+        mean_v, p95_v = corner_score(roi, cfg.blur_ksize, None)
         scores[corner.name] = max(mean_v, p95_v / 6.0)
     return scores
 
@@ -144,17 +135,6 @@ def temporal_expand(flags: list[bool], pad: int) -> list[bool]:
         for j in range(lo, hi):
             out[j] = True
     return out
-
-
-def studio_bg_mask(frame_bgr: np.ndarray) -> np.ndarray:
-    """棚景浅灰背景掩膜：高亮 + 低色度，用于避开人物。"""
-    lab = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2LAB)
-    L, a, b = cv2.split(lab)
-    return (
-        (L > 155)
-        & (np.abs(a.astype(np.int16) - 128) < 18)
-        & (np.abs(b.astype(np.int16) - 128) < 18)
-    )
 
 
 def build_clean_plates(
@@ -225,14 +205,10 @@ def apply_clean_plates(
     plates: dict[str, np.ndarray],
     corners: tuple[CornerRoi, ...] = DOUBAO_CORNERS,
 ) -> tuple[np.ndarray, bool]:
-    """
-    将激活角区的浅色背景像素替换为干净底板。
-    左上可整块替换；右下仅替换背景，保留鞋子/小腿。
-    """
+    """激活角区整块替换为干净底板（不做颜色/背景像素筛选）。"""
     h, w = frame_bgr.shape[:2]
     out = frame_bgr
     changed = False
-    bg = studio_bg_mask(frame_bgr)
 
     for corner in corners:
         if not active.get(corner.name, False):
@@ -241,27 +217,14 @@ def apply_clean_plates(
         if plate is None:
             continue
         x0, y0, x1, y1 = _roi_abs(corner.box, w, h)
+        if not changed:
+            out = frame_bgr.copy()
         roi = out[y0:y1, x0:x1]
         if roi.shape[:2] != plate.shape[:2]:
             plate_r = cv2.resize(plate, (roi.shape[1], roi.shape[0]), interpolation=cv2.INTER_LINEAR)
         else:
             plate_r = plate
-
-        if corner.name == "tl":
-            sel = np.ones(roi.shape[:2], dtype=bool)
-        else:
-            sel = bg[y0:y1, x0:x1]
-            # 略膨胀，盖住水印边缘半透明像素
-            sel_u8 = sel.astype(np.uint8) * 255
-            sel_u8 = cv2.dilate(sel_u8, np.ones((5, 5), np.uint8), iterations=1)
-            sel = sel_u8.astype(bool)
-
-        if not sel.any():
-            continue
-        if not changed:
-            out = frame_bgr.copy()
-            roi = out[y0:y1, x0:x1]
-        roi[sel] = plate_r[sel]
+        out[y0:y1, x0:x1] = plate_r
         changed = True
 
     return out, changed
@@ -340,35 +303,38 @@ def process_video(
     cfg: DetectConfig,
     save_debug_dir: Path | None = None,
 ) -> None:
-    """三遍处理：检测时序 → 估计干净底板 → 合成写出。"""
+    """
+    处理流程：扫角区分数 → 用低分帧估底板 → 全程整块覆盖左上+右下。
+    检测只用于选干净底板，合成阶段两角每帧都盖，避免进出场漏帧。
+    """
     cap = cv2.VideoCapture(str(input_path))
     if not cap.isOpened():
         raise RuntimeError(f"无法打开视频: {input_path}")
 
-    print(f"[1/4] 扫描水印时序: {input_path.name}", flush=True)
+    print(f"[1/4] 扫描角区残差: {input_path.name}", flush=True)
     scores_list, w, h, fps = collect_scores(cap, cfg)
     cap.release()
     if not scores_list:
         raise RuntimeError("视频无有效帧")
 
-    timeline_raw, timeline = active_timeline(scores_list, cfg)
-    hit_tl = sum(1 for t in timeline if t.get("tl"))
-    hit_br = sum(1 for t in timeline if t.get("br"))
+    # 仅用于选底板：raw 未激活 = 相对干净；合成不再按 timeline 开关
+    timeline_raw, _timeline = active_timeline(scores_list, cfg)
+    clean_tl = sum(1 for t in timeline_raw if not t.get("tl"))
     clean_br = sum(1 for t in timeline_raw if not t.get("br"))
     print(
-        f"      帧数={len(timeline)}, 左上激活={hit_tl}, 右下激活={hit_br}, "
-        f"右下干净帧(底板用)={clean_br}, fps={fps:.2f}",
+        f"      帧数={len(scores_list)}, 左上候选干净帧={clean_tl}, "
+        f"右下候选干净帧={clean_br}, fps={fps:.2f}",
         flush=True,
     )
 
     if save_debug_dir is not None:
         save_debug_dir.mkdir(parents=True, exist_ok=True)
         with (save_debug_dir / "scores.csv").open("w", encoding="utf-8") as f:
-            f.write("frame,tl_score,br_score,tl_on,br_on\n")
-            for i, (sc, act) in enumerate(zip(scores_list, timeline)):
+            f.write("frame,tl_score,br_score,tl_clean_candidate,br_clean_candidate\n")
+            for i, (sc, act) in enumerate(zip(scores_list, timeline_raw)):
                 f.write(
                     f"{i},{sc.get('tl', 0):.3f},{sc.get('br', 0):.3f},"
-                    f"{int(act.get('tl', False))},{int(act.get('br', False))}\n"
+                    f"{int(not act.get('tl', False))},{int(not act.get('br', False))}\n"
                 )
 
     print("[2/4] 估计干净底板…", flush=True)
@@ -385,28 +351,26 @@ def process_video(
     if not writer.isOpened():
         raise RuntimeError("无法创建临时视频写入器")
 
-    print("[3/4] 合成去除水印…", flush=True)
+    # 全程覆盖双角，进出场不会漏
+    always_on = {"tl": True, "br": True}
+    n_frames = len(scores_list)
+    print("[3/4] 全程覆盖左上+右下…", flush=True)
     idx = 0
-    repaired = 0
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-            act = timeline[idx] if idx < len(timeline) else {"tl": False, "br": False}
-            if act.get("tl") or act.get("br"):
-                frame, changed = apply_clean_plates(frame, act, plates)
-                if changed:
-                    repaired += 1
+            frame, _ = apply_clean_plates(frame, always_on, plates)
             writer.write(frame)
             idx += 1
             if idx % 50 == 0:
-                print(f"      进度 {idx}/{len(timeline)}", flush=True)
+                print(f"      进度 {idx}/{n_frames}", flush=True)
     finally:
         cap.release()
         writer.release()
 
-    print(f"      已修复帧数={repaired}", flush=True)
+    print(f"      已覆盖帧数={idx}", flush=True)
     print(f"[4/4] 合成音轨 → {output_path}", flush=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
