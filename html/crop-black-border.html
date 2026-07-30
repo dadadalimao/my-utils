@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>去黑边裁剪工具</title>
+  <script src="../js/nav.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 96%;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    #dropZone {
+      border: 2px dashed #ccc;
+      border-radius: 10px;
+      padding: 30px;
+      text-align: center;
+      margin: 20px 0;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    #dropZone.dragover {
+      border-color: #2196F3;
+      background-color: #f5f9ff;
+    }
+
+    .options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px 24px;
+      margin: 16px 0;
+      align-items: center;
+    }
+
+    .options label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .options input[type="number"],
+    .options input[type="range"] {
+      width: 120px;
+    }
+
+    .options .value {
+      min-width: 2.5em;
+      color: #555;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 12px 0 20px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #1976D2;
+    }
+
+    button:disabled {
+      background: #bbb;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: #6c757d;
+    }
+
+    button.secondary:hover {
+      background: #5a6268;
+    }
+
+    .tip {
+      color: #888;
+      font-size: 0.85rem;
+      margin: 0 0 16px;
+    }
+
+    .item-list {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .item {
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 16px;
+      background: #fafafa;
+    }
+
+    .item-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .item-title {
+      font-weight: bold;
+      margin: 0;
+    }
+
+    .item-meta {
+      color: #666;
+      font-size: 0.9rem;
+    }
+
+    .preview-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 800px) {
+      .preview-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .preview-pane h4 {
+      margin: 0 0 8px;
+      font-size: 0.95rem;
+      color: #444;
+    }
+
+    .preview-pane canvas,
+    .preview-pane img {
+      display: block;
+      max-width: 100%;
+      max-height: 420px;
+      width: auto;
+      height: auto;
+      background: #111;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin: 0 auto;
+    }
+
+    .error {
+      color: #c62828;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>去黑边裁剪工具</h1>
+    <p>裁掉手机预览截图四周的近黑色边（含底部浅灰 UI）。算法与 <code>python/crop_black_border.py</code> 一致。</p>
+
+    <div id="dropZone">
+      将图片拖放到此处，或点击选择文件（支持多选）
+      <input type="file" id="fileInput" accept="image/*" multiple hidden>
+    </div>
+
+    <div class="options">
+      <label>
+        亮度阈值
+        <input type="range" id="threshold" min="0" max="80" value="32">
+        <span class="value" id="thresholdVal">32</span>
+      </label>
+      <label>
+        内容占比
+        <input type="number" id="minRatio" min="0.001" max="0.2" step="0.001" value="0.008">
+      </label>
+      <label>
+        外扩 pad
+        <input type="number" id="pad" min="-20" max="40" step="1" value="0">
+      </label>
+      <label>
+        <input type="checkbox" id="showBox" checked>
+        原图显示裁切框
+      </label>
+    </div>
+
+    <div class="buttons">
+      <button id="processBtn" disabled>重新裁切</button>
+      <button id="downloadAllBtn" disabled>下载全部</button>
+      <button id="clearBtn" class="secondary">清空</button>
+    </div>
+    <p class="tip">底部仍有淡 UI 时调高阈值；裁多了则调低，或增大 pad。输出文件名：原名_crop.*</p>
+
+    <div id="itemList" class="item-list"></div>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const thresholdEl = document.getElementById('threshold');
+    const thresholdVal = document.getElementById('thresholdVal');
+    const minRatioEl = document.getElementById('minRatio');
+    const padEl = document.getElementById('pad');
+    const showBoxEl = document.getElementById('showBox');
+    const processBtn = document.getElementById('processBtn');
+    const downloadAllBtn = document.getElementById('downloadAllBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const itemList = document.getElementById('itemList');
+
+    /** @type {{ file: File, name: string, img: HTMLImageElement, canvas: HTMLCanvasElement|null, blob: Blob|null, bbox: number[]|null, error: string|null }[]} */
+    let items = [];
+    let reprocessTimer = 0;
+
+    /** localStorage 键：记住裁切参数 */
+    const SETTINGS_KEY = 'my-utils:crop-black-border';
+
+    /**
+     * 从本地读取并应用上次参数
+     */
+    function loadSettings() {
+      try {
+        const raw = localStorage.getItem(SETTINGS_KEY);
+        if (!raw) return;
+        const s = JSON.parse(raw);
+        if (typeof s.threshold === 'number') {
+          thresholdEl.value = String(Math.min(80, Math.max(0, s.threshold)));
+          thresholdVal.textContent = thresholdEl.value;
+        }
+        if (typeof s.minRatio === 'number') {
+          minRatioEl.value = String(s.minRatio);
+        }
+        if (typeof s.pad === 'number') {
+          padEl.value = String(s.pad);
+        }
+        if (typeof s.showBox === 'boolean') {
+          showBoxEl.checked = s.showBox;
+        }
+      } catch {
+        /* 忽略损坏的缓存 */
+      }
+    }
+
+    /** 将当前参数写入 localStorage */
+    function saveSettings() {
+      const payload = {
+        threshold: Number(thresholdEl.value),
+        minRatio: Number(minRatioEl.value),
+        pad: Number(padEl.value),
+        showBox: showBoxEl.checked,
+      };
+      try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
+      } catch {
+        /* 隐私模式等写入失败时忽略 */
+      }
+    }
+
+    loadSettings();
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      addFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', (e) => {
+      addFiles(e.target.files);
+      fileInput.value = '';
+    });
+
+    thresholdEl.addEventListener('input', () => {
+      thresholdVal.textContent = thresholdEl.value;
+      saveSettings();
+      scheduleReprocess();
+    });
+    minRatioEl.addEventListener('change', () => {
+      saveSettings();
+      scheduleReprocess();
+    });
+    padEl.addEventListener('change', () => {
+      saveSettings();
+      scheduleReprocess();
+    });
+    showBoxEl.addEventListener('change', () => {
+      saveSettings();
+      renderList();
+    });
+    processBtn.addEventListener('click', () => reprocessAll());
+    downloadAllBtn.addEventListener('click', downloadAll);
+    clearBtn.addEventListener('click', clearAll);
+
+    /**
+     * 追加图片文件
+     * @param {FileList|File[]} fileList
+     */
+    async function addFiles(fileList) {
+      const files = [...fileList].filter((f) => f.type.startsWith('image/'));
+      if (!files.length) return;
+
+      for (const file of files) {
+        const img = await loadImage(file);
+        items.push({
+          file,
+          name: file.name,
+          img,
+          canvas: null,
+          blob: null,
+          bbox: null,
+          error: null,
+        });
+      }
+      updateButtons();
+      await reprocessAll();
+    }
+
+    /**
+     * @param {File} file
+     * @returns {Promise<HTMLImageElement>}
+     */
+    function loadImage(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve(img);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('图片加载失败'));
+        };
+        img.src = url;
+      });
+    }
+
+    function scheduleReprocess() {
+      clearTimeout(reprocessTimer);
+      reprocessTimer = setTimeout(() => reprocessAll(), 120);
+    }
+
+    async function reprocessAll() {
+      const threshold = Number(thresholdEl.value);
+      const minRatio = Number(minRatioEl.value);
+      const pad = Number(padEl.value);
+
+      for (const item of items) {
+        processItem(item, threshold, minRatio, pad);
+      }
+      renderList();
+      updateButtons();
+    }
+
+    /**
+     * 与 Python 脚本一致的内容包围盒检测
+     * @param {ImageData} imageData
+     * @param {number} threshold
+     * @param {number} minContentRatio
+     * @param {number} pad
+     * @returns {[number, number, number, number]|null} x0,y0,x1,y1 右下开区间
+     */
+    function findContentBbox(imageData, threshold, minContentRatio, pad) {
+      const w = imageData.width;
+      const h = imageData.height;
+      const data = imageData.data;
+      const rowCounts = new Int32Array(h);
+      const colCounts = new Int32Array(w);
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const luma = Math.max(data[i], data[i + 1], data[i + 2]);
+          if (luma > threshold) {
+            rowCounts[y]++;
+            colCounts[x]++;
+          }
+        }
+      }
+
+      const minRowPx = Math.max(1, Math.floor(w * minContentRatio));
+      const minColPx = Math.max(1, Math.floor(h * minContentRatio));
+
+      let y0 = -1;
+      let y1 = -1;
+      for (let y = 0; y < h; y++) {
+        if (rowCounts[y] >= minRowPx) {
+          y0 = y;
+          break;
+        }
+      }
+      for (let y = h - 1; y >= 0; y--) {
+        if (rowCounts[y] >= minRowPx) {
+          y1 = y + 1;
+          break;
+        }
+      }
+
+      let x0 = -1;
+      let x1 = -1;
+      for (let x = 0; x < w; x++) {
+        if (colCounts[x] >= minColPx) {
+          x0 = x;
+          break;
+        }
+      }
+      for (let x = w - 1; x >= 0; x--) {
+        if (colCounts[x] >= minColPx) {
+          x1 = x + 1;
+          break;
+        }
+      }
+
+      if (y0 < 0 || y1 < 0 || x0 < 0 || x1 < 0) return null;
+
+      x0 = Math.max(0, x0 - pad);
+      y0 = Math.max(0, y0 - pad);
+      x1 = Math.min(w, x1 + pad);
+      y1 = Math.min(h, y1 + pad);
+
+      if (x1 <= x0 || y1 <= y0) return null;
+      return [x0, y0, x1, y1];
+    }
+
+    /**
+     * @param {typeof items[0]} item
+     * @param {number} threshold
+     * @param {number} minRatio
+     * @param {number} pad
+     */
+    function processItem(item, threshold, minRatio, pad) {
+      const src = document.createElement('canvas');
+      src.width = item.img.naturalWidth;
+      src.height = item.img.naturalHeight;
+      const sctx = src.getContext('2d', { willReadFrequently: true });
+      sctx.drawImage(item.img, 0, 0);
+
+      const imageData = sctx.getImageData(0, 0, src.width, src.height);
+      const bbox = findContentBbox(imageData, threshold, minRatio, pad);
+      if (!bbox) {
+        item.bbox = null;
+        item.canvas = null;
+        item.blob = null;
+        item.error = '未检测到可裁内容';
+        return;
+      }
+
+      const [x0, y0, x1, y1] = bbox;
+      const out = document.createElement('canvas');
+      out.width = x1 - x0;
+      out.height = y1 - y0;
+      out.getContext('2d').drawImage(src, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+
+      item.bbox = bbox;
+      item.canvas = out;
+      item.error = null;
+      // 异步导出 blob，下载时用
+      out.toBlob((blob) => {
+        item.blob = blob;
+        updateButtons();
+      }, guessMime(item.name), 0.92);
+    }
+
+    /**
+     * @param {string} name
+     * @returns {string}
+     */
+    function guessMime(name) {
+      const lower = name.toLowerCase();
+      if (lower.endsWith('.png')) return 'image/png';
+      if (lower.endsWith('.webp')) return 'image/webp';
+      return 'image/jpeg';
+    }
+
+    /**
+     * @param {string} name
+     * @returns {string}
+     */
+    function cropFileName(name) {
+      const i = name.lastIndexOf('.');
+      if (i < 0) return name + '_crop.jpg';
+      return name.slice(0, i) + '_crop' + name.slice(i);
+    }
+
+    function renderList() {
+      itemList.innerHTML = '';
+      items.forEach((item, index) => {
+        const el = document.createElement('div');
+        el.className = 'item';
+
+        const w = item.img.naturalWidth;
+        const h = item.img.naturalHeight;
+        let meta = `${w}×${h}`;
+        if (item.bbox) {
+          const [x0, y0, x1, y1] = item.bbox;
+          meta += ` → ${x1 - x0}×${y1 - y0}　crop=(${x0},${y0})-(${x1},${y1})`;
+        }
+
+        el.innerHTML = `
+          <div class="item-header">
+            <p class="item-title">${escapeHtml(item.name)}</p>
+            <div>
+              <button type="button" data-dl="${index}" ${item.canvas ? '' : 'disabled'}>下载</button>
+              <button type="button" class="secondary" data-rm="${index}">移除</button>
+            </div>
+          </div>
+          <div class="item-meta">${meta}</div>
+          ${item.error ? `<p class="error">${escapeHtml(item.error)}</p>` : ''}
+          <div class="preview-row">
+            <div class="preview-pane">
+              <h4>原图（红框=裁切区）</h4>
+              <canvas data-overlay="${index}"></canvas>
+            </div>
+            <div class="preview-pane">
+              <h4>裁切结果</h4>
+              <canvas data-result="${index}"></canvas>
+            </div>
+          </div>
+        `;
+        itemList.appendChild(el);
+
+        const overlay = el.querySelector(`[data-overlay="${index}"]`);
+        drawOverlayOn(overlay, item);
+
+        const result = el.querySelector(`[data-result="${index}"]`);
+        if (item.canvas) {
+          result.width = item.canvas.width;
+          result.height = item.canvas.height;
+          result.getContext('2d').drawImage(item.canvas, 0, 0);
+        } else {
+          result.width = 1;
+          result.height = 1;
+        }
+      });
+
+      itemList.querySelectorAll('[data-dl]').forEach((btn) => {
+        btn.addEventListener('click', () => downloadOne(Number(btn.getAttribute('data-dl'))));
+      });
+      itemList.querySelectorAll('[data-rm]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          items.splice(Number(btn.getAttribute('data-rm')), 1);
+          renderList();
+          updateButtons();
+        });
+      });
+    }
+
+    /**
+     * @param {HTMLCanvasElement} canvas
+     * @param {typeof items[0]} item
+     */
+    function drawOverlayOn(canvas, item) {
+      const w = item.img.naturalWidth;
+      const h = item.img.naturalHeight;
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(item.img, 0, 0);
+
+      if (showBoxEl.checked && item.bbox) {
+        const [x0, y0, x1, y1] = item.bbox;
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(0, 0, w, y0);
+        ctx.fillRect(0, y1, w, h - y1);
+        ctx.fillRect(0, y0, x0, y1 - y0);
+        ctx.fillRect(x1, y0, w - x1, y1 - y0);
+        ctx.strokeStyle = '#ff1744';
+        ctx.lineWidth = Math.max(2, Math.round(Math.min(w, h) / 400));
+        ctx.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
+        ctx.restore();
+      }
+    }
+
+    /**
+     * @param {number} index
+     */
+    async function downloadOne(index) {
+      const item = items[index];
+      if (!item) return;
+      const blob = item.blob || (item.canvas && await canvasToBlob(item.canvas, guessMime(item.name)));
+      if (!blob) return;
+      triggerDownload(blob, cropFileName(item.name));
+    }
+
+    async function downloadAll() {
+      for (let i = 0; i < items.length; i++) {
+        await downloadOne(i);
+      }
+    }
+
+    /**
+     * @param {HTMLCanvasElement} canvas
+     * @param {string} mime
+     * @returns {Promise<Blob|null>}
+     */
+    function canvasToBlob(canvas, mime) {
+      return new Promise((resolve) => canvas.toBlob(resolve, mime, 0.92));
+    }
+
+    /**
+     * @param {Blob} blob
+     * @param {string} filename
+     */
+    function triggerDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function updateButtons() {
+      const has = items.length > 0;
+      const hasCrop = items.some((i) => i.canvas);
+      processBtn.disabled = !has;
+      downloadAllBtn.disabled = !hasCrop;
+    }
+
+    function clearAll() {
+      items = [];
+      itemList.innerHTML = '';
+      updateButtons();
+    }
+
+    /**
+     * @param {string} text
+     * @returns {string}
+     */
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+
+</html>

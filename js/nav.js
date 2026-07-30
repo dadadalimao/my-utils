@@ -59,6 +59,12 @@
       icon: "🔤",
     },
     {
+      id: "cropBlackBorder",
+      name: "去黑边裁剪工具",
+      file: "crop-black-border.html",
+      icon: "✂️",
+    },
+    {
       id: "cursorUsage",
       name: "Cursor用量数据",
       file: "Cursor用量数据.html",
