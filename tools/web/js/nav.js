@@ -1,6 +1,6 @@
 /**
  * 统一导航栏组件
- * 根目录 index.html 引入 js/nav.js；html/ 下工具页引入 ../js/nav.js
+ * tools/web/index.html 引入 js/nav.js；tools/web/html/ 下工具页引入 ../js/nav.js
  */
 
 (function () {

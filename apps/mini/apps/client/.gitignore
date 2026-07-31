@@ -1,4 +1,4 @@
-# Logs
+﻿# Logs
 logs
 *.log
 npm-debug.log*
@@ -19,3 +19,6 @@ dist
 *.njsproj
 *.sln
 *.sw?
+
+# Local WeChat DevTools private config (real appid; do not commit)
+project.private.config.json

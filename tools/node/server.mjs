@@ -1,5 +1,5 @@
 /**
- * nodeScript 本地服务：静态页面 + GIF 转 Lottie / GIF 裁剪 / 字体压缩 API
+ * tools/node 本地服务：静态页面 + GIF 转 Lottie / GIF 裁剪 / 字体压缩 API
  * 启动：npm start  →  http://localhost:3920
  */
 
@@ -34,8 +34,8 @@ const upload = multer({
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(__dirname));
-/** 仓库根目录 js/（lottie.min.js 等） */
-app.use('/js', express.static(path.join(__dirname, '..', 'js')));
+/** tools/web/js（lottie.min.js 等） */
+app.use('/js', express.static(path.join(__dirname, '..', 'web', 'js')));
 
 function parseConvertOptions(body) {
   const maxFrames = parseInt(body.maxFrames, 10) || 0;
@@ -278,7 +278,7 @@ app.use((err, req, res, next) => {
 });
 
 const server = app.listen(PORT, () => {
-  console.log(`nodeScript 已启动: http://localhost:${PORT}（上传上限 ${MAX_UPLOAD_MB}MB）`);
+  console.log(`tools/node 已启动: http://localhost:${PORT}（上传上限 ${MAX_UPLOAD_MB}MB）`);
 });
 
 function shutdown() {

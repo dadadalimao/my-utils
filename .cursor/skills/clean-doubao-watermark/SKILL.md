@@ -42,7 +42,7 @@ python .cursor/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "
 python .cursor/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "输入.mp4" --debug-dir debug_wm
 ```
 
-仓库快捷入口：`script/clean_doubao_watermark.py`  
+仓库快捷入口：`tools/cli/clean_doubao_watermark.py`  
 输出默认：`<原名>_clean.mp4`（与输入同目录）
 
 ## 流水线

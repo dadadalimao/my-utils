@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Utils - 前端工具集</title>
+    <title>My Utils - 仓库入口</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -18,7 +18,14 @@
         .page-title {
             text-align: center;
             margin-top: 20px;
+            margin-bottom: 8px;
+        }
+
+        .page-sub {
+            text-align: center;
+            color: #666;
             margin-bottom: 30px;
+            font-size: 0.95rem;
         }
 
         .main-content {
@@ -75,6 +82,14 @@
             margin: 0;
         }
 
+        .path-hint {
+            display: block;
+            margin-top: 10px;
+            font-size: 0.8rem;
+            color: #888;
+            font-family: Consolas, monospace;
+        }
+
         footer {
             text-align: center;
             padding: 20px;
@@ -91,89 +106,69 @@
 
 <body>
     <div class="main-content">
-        <h1 class="page-title">前端工具集</h1>
+        <h1 class="page-title">My Utils</h1>
+        <p class="page-sub">按能力域分区的个人工具与项目仓库</p>
 
         <div class="tool-grid">
-            <a href="html/stringGetCity.html" class="tool-card">
-                <div class="tool-icon">🗺️</div>
+            <a href="tools/web/index.html" class="tool-card">
+                <div class="tool-icon">🌐</div>
                 <div class="tool-content">
-                    <h2 class="tool-title">地址解析工具</h2>
-                    <p class="tool-description">从中文地址字符串中提取省、市、区/县三级行政区划，支持各类地址格式</p>
+                    <h2 class="tool-title">Web 工具</h2>
+                    <p class="tool-description">纯浏览器小工具：地址解析、SVG/Word/Excel、画布与裁剪等</p>
+                    <span class="path-hint">tools/web/</span>
                 </div>
             </a>
 
-            <a href="html/svg-png.html" class="tool-card">
-                <div class="tool-icon">🖼️</div>
+            <a href="tools/node/index.html" class="tool-card">
+                <div class="tool-icon">⚙️</div>
                 <div class="tool-content">
-                    <h2 class="tool-title">SVG转换工具</h2>
-                    <p class="tool-description">实时预览SVG代码，支持拖放文件、PNG多倍图导出及SVG源码导出</p>
+                    <h2 class="tool-title">Node 工具</h2>
+                    <p class="tool-description">本地服务：GIF 转 Lottie、GIF 裁剪、字体子集压缩（需先 npm start）</p>
+                    <span class="path-hint">tools/node/</span>
                 </div>
             </a>
 
-            <a href="html/wordToHtml.html" class="tool-card">
-                <div class="tool-icon">📄</div>
+            <a href="tools/cli/readme.md" class="tool-card">
+                <div class="tool-icon">💻</div>
                 <div class="tool-content">
-                    <h2 class="tool-title">Word文档转换器</h2>
-                    <p class="tool-description">将Word文档转换为HTML，完整保留样式，支持表格、列表和标题等格式</p>
+                    <h2 class="tool-title">CLI 脚本</h2>
+                    <p class="tool-description">PowerShell / Node / Python：Git 辅助、关机定时、水印清理等</p>
+                    <span class="path-hint">tools/cli/</span>
                 </div>
             </a>
 
-            <a href="html/wordToRich.html" class="tool-card">
-                <div class="tool-icon">✍️</div>
+            <a href="devtools/javaTool/launch-gui.ps1" class="tool-card">
+                <div class="tool-icon">☕</div>
                 <div class="tool-content">
-                    <h2 class="tool-title">富文本转换器</h2>
-                    <p class="tool-description">将Word文档转换为富文本格式，支持实时预览和二次编辑功能</p>
+                    <h2 class="tool-title">JavaTool</h2>
+                    <p class="tool-description">Java 项目启停 GUI（PowerShell）。用 pwsh 运行 launch-gui.ps1</p>
+                    <span class="path-hint">devtools/javaTool/</span>
                 </div>
             </a>
 
-            <a href="html/objArrayToExcel.html" class="tool-card">
-                <div class="tool-icon">📊</div>
+            <a href="apps/mini/需求文档.md" class="tool-card">
+                <div class="tool-icon">📖</div>
                 <div class="tool-content">
-                    <h2 class="tool-title">数组转Excel生成器</h2>
-                    <p class="tool-description">将JSON格式对象数组转换为Excel文件，自动提取表头，支持复杂数据结构</p>
+                    <h2 class="tool-title">Mini 小说应用</h2>
+                    <p class="tool-description">AI 写小说（uni-app + Nest）。在 apps/mini/apps 执行 start.ps1</p>
+                    <span class="path-hint">apps/mini/</span>
                 </div>
             </a>
 
-            <a href="html/批量画布调整.html" class="tool-card">
-                <div class="tool-icon">🖌️</div>
+            <a href="docs/提示词参考.md" class="tool-card">
+                <div class="tool-icon">📝</div>
                 <div class="tool-content">
-                    <h2 class="tool-title">图片批量画布处理器</h2>
-                    <p class="tool-description">批量将图片置于指定尺寸画布中，支持九宫格对齐和批量导出</p>
-                </div>
-            </a>
-
-            <a href="html/imageToBase64.html" class="tool-card">
-                <div class="tool-icon">🔤</div>
-                <div class="tool-content">
-                    <h2 class="tool-title">图片转Base64工具</h2>
-                    <p class="tool-description">将图片文件转换为 Base64 字符串，支持预览、复制和下载</p>
-                </div>
-            </a>
-
-            <a href="html/crop-black-border.html" class="tool-card">
-                <div class="tool-icon">✂️</div>
-                <div class="tool-content">
-                    <h2 class="tool-title">去黑边裁剪工具</h2>
-                    <p class="tool-description">裁掉手机预览截图四周近黑色边，支持阈值调节与前后对比预览</p>
-                </div>
-            </a>
-
-            <a href="html/Cursor用量数据.html" class="tool-card">
-                <div class="tool-icon">📈</div>
-                <div class="tool-content">
-                    <h2 class="tool-title">Cursor用量数据</h2>
-                    <p class="tool-description">解析 Usage Events CSV，汇总 Token 并展示缓存命中率与输出率</p>
+                    <h2 class="tool-title">文档备忘</h2>
+                    <p class="tool-description">提示词参考等元资料</p>
+                    <span class="path-hint">docs/</span>
                 </div>
             </a>
         </div>
     </div>
 
     <footer>
-        <p>My Utils - 前端工具集 | <span class="version">v1.0.0</span></p>
+        <p>My Utils | <span class="version">能力域分区</span></p>
     </footer>
-
-    <!-- 引入统一导航栏 -->
-    <script src="js/nav.js"></script>
 </body>
 
 </html>

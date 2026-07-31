@@ -1,5 +1,5 @@
 ﻿# 功能：定时关机（倒计时 / 指定时间），支持查看与取消当前预约
-# 用法：pwsh -File script/shutdown-timer.ps1  或  . .\script\shutdown-timer.ps1; Invoke-ShutdownTimer
+# 用法：pwsh -File tools/cli/shutdown-timer.ps1  或  . .\tools\cli\shutdown-timer.ps1; Invoke-ShutdownTimer
 
 $ErrorActionPreference = 'Stop'
 

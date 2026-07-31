@@ -1,5 +1,5 @@
 ﻿# Git 脚本管理工具
-# 功能：提供交互式菜单，可选执行 script/git 目录下的脚本
+# 功能：提供交互式菜单，可选执行 tools/cli/git 目录下的脚本
 
 $ErrorActionPreference = "Stop"
 
@@ -12,7 +12,7 @@ if (-not (Test-Path $scriptDir)) {
     exit 1
 }
 
-# 从 script/git 目录自动读取 .ps1 脚本列表，描述取自脚本内首行 "# 功能：xxx"
+# 从 tools/cli/git 目录自动读取 .ps1 脚本列表，描述取自脚本内首行 "# 功能：xxx"
 function Get-ScriptList {
     # 以 _ 开头的脚本为内部模块，不在菜单中展示
     $files = Get-ChildItem -Path $scriptDir -Filter "*.ps1" -File |

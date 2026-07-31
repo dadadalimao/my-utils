@@ -4,17 +4,17 @@ bat/totest.bat
 192.168*
 
 # javaTool 运行时终端 session
-javaTool/sessions/
-javaTool/data/config.local.json
-javaTool/config.local.json
+devtools/javaTool/sessions/
+devtools/javaTool/data/config.local.json
+devtools/javaTool/config.local.json
 
-# nodeScript
-nodeScript/node_modules/
-nodeScript/.cache/
+# tools/node
+tools/node/node_modules/
+tools/node/.cache/
 # 本地字体库（仅本地使用，勿提交字体文件）
-nodeScript/assets/fonts/*
-!nodeScript/assets/fonts/.gitkeep
-nodeScript/.yarn/
+tools/node/assets/fonts/*
+!tools/node/assets/fonts/.gitkeep
+tools/node/.yarn/
 
 AutoHotkey
 wxminiprogram
@@ -24,10 +24,11 @@ wxminiprogram
 .cursor/office/临时文件
 
 # mini（AI 写小说）本地依赖与构建产物、密钥、数据库
-mini/apps/**/node_modules/
-mini/apps/**/dist/
-mini/apps/**/.env
-mini/apps/**/.env.local
-mini/apps/server/prisma/*.db
-mini/apps/server/prisma/*.db-journal
-mini/apps/**/*.log
+apps/mini/apps/**/node_modules/
+apps/mini/apps/**/dist/
+apps/mini/apps/**/.env
+apps/mini/apps/**/.env.local
+apps/mini/apps/server/prisma/*.db
+apps/mini/apps/server/prisma/*.db-journal
+apps/mini/apps/**/*.log
+apps/mini/apps/client/project.private.config.json

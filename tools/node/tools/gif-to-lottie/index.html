@@ -662,7 +662,7 @@
                 const msg = err.message || String(err);
                 setLog(msg, true);
                 if (msg.includes('网络错误') || msg.includes('Failed')) {
-                    setLog('无法连接服务，请在 nodeScript 目录执行 npm start 后访问 http://localhost:3920', true);
+                    setLog('无法连接服务，请在 tools/node 目录执行 npm start 后访问 http://localhost:3920', true);
                 }
             } finally {
                 hideProgress();

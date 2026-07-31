@@ -104,7 +104,7 @@ export function outputExtFromFilename(filename) {
   return match ? `.${match[1].toLowerCase()}` : '.ttf';
 }
 
-/** assets/fonts 相对 nodeScript 根目录 */
+/** assets/fonts 相对 tools/node 根目录 */
 export const FONT_ASSETS_REL = path.join('assets', 'fonts');
 
 /**

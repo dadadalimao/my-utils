@@ -1,113 +1,73 @@
 # my-utils
 
-自用前端工具集合，支持以下功能：
+按能力域分区的个人工具与项目仓库（非 Monorepo / 无 workspace）。
 
-## 目录
+## 仓库地图
 
-- [工具列表](#工具列表)
-  - [🗺️ 地址解析工具](#-stringgetcityhtml)
-  - [🖼️ SVG 转换工具](#-svg-pnghtml)
-  - [📄 Word 文档转换器](#-wordtohtmlhtml)
-  - [✍️ 富文本转换器](#-wordtorichhtml)
-  - [📊 数组转 Excel 生成器](#-objarraytoexcelhtml)
-  - [🖌️ 图片批量画布处理器](#-批量画布调整html)
-- [使用说明](#使用说明)
-- [注意事项](#注意事项)
+| 区域 | 路径 | 说明 |
+|------|------|------|
+| Web 工具 | [`tools/web/`](tools/web/) | 纯浏览器小工具，打开 [`tools/web/index.html`](tools/web/index.html) |
+| Node 工具 | [`tools/node/`](tools/node/) | 本地 Express 服务（GIF / 字体等），`cd tools/node && npm start` |
+| CLI 脚本 | [`tools/cli/`](tools/cli/) | PowerShell / Node / Python 辅助脚本 |
+| JavaTool | [`devtools/javaTool/`](devtools/javaTool/) | Java 项目启停 GUI |
+| Mini | [`apps/mini/`](apps/mini/) | AI 写小说（uni-app + Nest），故事资料在 `apps/mini/story/` |
+| 文档 | [`docs/`](docs/) | 提示词等备忘 |
+| Cursor | [`.cursor/`](.cursor/) | Agent skills（保持独立） |
 
-## 工具列表
+根目录 [`index.html`](index.html) 为分区总入口；[`start.ps1`](start.ps1) / [`start.bat`](start.bat) 为 wt 启动菜单（可选启动 node / mini / web / javaTool）。
 
-### 🗺️ html/stringGetCity.html
+---
 
-**地址解析工具**
+## tools/web
 
-- 功能：从中文地址字符串中提取省、市、区/县三级行政区划
-- 特性：
-  - 支持正则匹配省级（省/自治区/特别行政区）
-  - 识别市级（市/自治州/地区/盟）
-  - 匹配区县级（区/县/旗/市辖区/自治县/林区）
-  - 自动处理重复信息，保留详细地址
+打开 [`tools/web/index.html`](tools/web/index.html)，或直接打开对应页面。无需后端，推荐 Chrome / Edge。
 
-### 🖼️ html/svg-png.html
+### 工具列表
 
-**SVG 转换工具**
+- [`tools/web/html/stringGetCity.html`](tools/web/html/stringGetCity.html) — 地址解析（省市区）
+- [`tools/web/html/svg-png.html`](tools/web/html/svg-png.html) — SVG 预览与 PNG 导出
+- [`tools/web/html/wordToHtml.html`](tools/web/html/wordToHtml.html) — Word → HTML
+- [`tools/web/html/wordToRich.html`](tools/web/html/wordToRich.html) — Word → 富文本
+- [`tools/web/html/objArrayToExcel.html`](tools/web/html/objArrayToExcel.html) — 对象数组 → Excel
+- [`tools/web/html/批量画布调整.html`](tools/web/html/批量画布调整.html) — 图片批量画布
+- [`tools/web/html/imageToBase64.html`](tools/web/html/imageToBase64.html) — 图片转 Base64
+- [`tools/web/html/crop-black-border.html`](tools/web/html/crop-black-border.html) — 去黑边裁剪
+- [`tools/web/html/Cursor用量数据.html`](tools/web/html/Cursor用量数据.html) — Cursor Usage CSV 汇总
 
-- 核心功能：
-  - 实时预览 SVG 代码渲染效果
-  - 支持拖放 SVG 文件/直接粘贴代码
-  - PNG 导出（支持 1x/2x/3x 多倍图）
-  - SVG 源码导出
-- 技术特性：
-  - 基于 Canvas 实现高清导出
-  - 自动保持原始宽高比
+共享脚本在 [`tools/web/js/`](tools/web/js/)。
 
-### 📄 html/wordToHtml.html
+## tools/node
 
-**Word 文档转换器**
+```powershell
+cd tools/node
+npm install
+npm start
+```
 
-- 功能亮点：
-  - 完整保留 Word 样式（表格/列表/标题等）
-  - 生成独立 HTML 文件
-  - 自动添加响应式样式
-  - 支持.docx 文件拖放操作
-- 样式映射：
-  - 保留段落行高（1.5 倍）
-  - 表格自动 100%宽度
-  - 列表缩进与项目符号
+浏览器访问 http://localhost:3920 。
 
-### ✍️ html/wordToRich.html
+## tools/cli
 
-**富文本转换器**
+```powershell
+pwsh -File tools/cli/git.ps1
+pwsh -File tools/cli/shutdown-timer.ps1
+```
 
-- 特色功能：
-  - 集成 Quill 富文本编辑器
-  - 实时预览转换结果
-  - 支持二次编辑
-  - 保留基础格式（加粗/斜体/下划线）
-- 技术栈：
-  - Mammoth.js 文档解析
-  - Quill 编辑器集成
+豆包水印清理：`tools/cli/clean_doubao_watermark.py`。
 
-### 📊 html/objArrayToExcel.html
+## apps/mini
 
-**数组转 Excel 生成器**
+```powershell
+cd apps/mini/apps
+.\start.ps1
+```
 
-- 核心功能：
-  - 将 JSON 格式对象数组转换为 Excel 文件
-  - 自动提取对象键作为表头
-  - 支持数组类型值的智能处理（自动用"、"连接）
-  - 一键导出.xlsx 格式文件
-- 技术特性：
-  - 基于 SheetJS 库实现
-  - 纯前端处理，无需服务器
-  - 友好的错误提示
-  - 支持复杂数据结构
+交互选择客户端：`1` H5 · `2` 微信小程序 · `3` 仅后端。也可从仓库根 [`start.ps1`](start.ps1) 选 Mini。
 
-### 🖌️ html/批量画布调整.html
-
-**图片批量画布处理器**
-
-- 核心功能：
-  - 批量将图片置于指定尺寸画布中
-  - 灵活的九宫格对齐方式（左上/居中/右下等）
-  - 实时预览处理效果
-  - 一键批量下载处理后图片
-- 技术特性：
-  - 支持拖放/点击选择多图片上传
-  - 单图删除与一键清空功能
-  - 自定义画布尺寸与输出文件名
-  - 可调背景色预览功能
-  - 基于 Canvas 绘制与 PNG 导出
-
-## 使用说明
-
-1. 从根目录 `index.html` 进入，或直接打开 `html/` 下对应工具页
-2. 所有工具均无需后端服务，纯浏览器运行
-3. 推荐使用 Chrome/Edge 等现代浏览器
+客户端与服务端分别为 `apps/mini/apps/client`、`apps/mini/apps/server`（独立 npm 包，无 workspace）。
 
 ## 注意事项
 
-⚠️ 文件操作限制：
-
-- Word 文件需为.docx 格式（2007+版本）
-- SVG 文件需符合 XML 规范
-- 地址解析工具暂不支持港澳台地区简称
+- Word 工具需 `.docx`；SVG 需合法 XML
+- 地址解析暂不支持港澳台简称
+- 本仓目录分类仅为组织方式，不引入 pnpm/yarn workspace / turbo / nx

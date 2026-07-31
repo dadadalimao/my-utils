@@ -1,6 +1,7 @@
 {
   "libVersion": "3.17.0",
   "projectname": "client",
+  "appid": "请填入你的微信小程序 AppID",
   "setting": {
     "urlCheck": true,
     "coverView": true,

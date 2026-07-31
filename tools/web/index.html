@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Utils - Web 工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+        }
+
+        .page-title {
+            text-align: center;
+            margin-top: 20px;
+            margin-bottom: 30px;
+        }
+
+        .main-content {
+            max-width: 96%;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .tool-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .tool-card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            overflow: hidden;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .tool-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .tool-icon {
+            font-size: 3rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 120px;
+            background-color: #f1f3f5;
+        }
+
+        .tool-content {
+            padding: 20px;
+        }
+
+        .tool-title {
+            font-size: 1.25rem;
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+
+        .tool-description {
+            color: #666;
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            background-color: #f1f3f5;
+            margin-top: 40px;
+        }
+
+        .version {
+            font-size: 0.8rem;
+            color: #777;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <h1 class="page-title">Web 工具</h1>
+
+        <div class="tool-grid">
+            <a href="html/stringGetCity.html" class="tool-card">
+                <div class="tool-icon">🗺️</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">地址解析工具</h2>
+                    <p class="tool-description">从中文地址字符串中提取省、市、区/县三级行政区划，支持各类地址格式</p>
+                </div>
+            </a>
+
+            <a href="html/svg-png.html" class="tool-card">
+                <div class="tool-icon">🖼️</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">SVG转换工具</h2>
+                    <p class="tool-description">实时预览SVG代码，支持拖放文件、PNG多倍图导出及SVG源码导出</p>
+                </div>
+            </a>
+
+            <a href="html/wordToHtml.html" class="tool-card">
+                <div class="tool-icon">📄</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">Word文档转换器</h2>
+                    <p class="tool-description">将Word文档转换为HTML，完整保留样式，支持表格、列表和标题等格式</p>
+                </div>
+            </a>
+
+            <a href="html/wordToRich.html" class="tool-card">
+                <div class="tool-icon">✍️</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">富文本转换器</h2>
+                    <p class="tool-description">将Word文档转换为富文本格式，支持实时预览和二次编辑功能</p>
+                </div>
+            </a>
+
+            <a href="html/objArrayToExcel.html" class="tool-card">
+                <div class="tool-icon">📊</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">数组转Excel生成器</h2>
+                    <p class="tool-description">将JSON格式对象数组转换为Excel文件，自动提取表头，支持复杂数据结构</p>
+                </div>
+            </a>
+
+            <a href="html/批量画布调整.html" class="tool-card">
+                <div class="tool-icon">🖌️</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">图片批量画布处理器</h2>
+                    <p class="tool-description">批量将图片置于指定尺寸画布中，支持九宫格对齐和批量导出</p>
+                </div>
+            </a>
+
+            <a href="html/imageToBase64.html" class="tool-card">
+                <div class="tool-icon">🔤</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">图片转Base64工具</h2>
+                    <p class="tool-description">将图片文件转换为 Base64 字符串，支持预览、复制和下载</p>
+                </div>
+            </a>
+
+            <a href="html/crop-black-border.html" class="tool-card">
+                <div class="tool-icon">✂️</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">去黑边裁剪工具</h2>
+                    <p class="tool-description">裁掉手机预览截图四周近黑色边，支持阈值调节与前后对比预览</p>
+                </div>
+            </a>
+
+            <a href="html/Cursor用量数据.html" class="tool-card">
+                <div class="tool-icon">📈</div>
+                <div class="tool-content">
+                    <h2 class="tool-title">Cursor用量数据</h2>
+                    <p class="tool-description">解析 Usage Events CSV，汇总 Token 并展示缓存命中率与输出率</p>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    <footer>
+        <p>My Utils - Web 工具 | <span class="version">tools/web</span></p>
+    </footer>
+
+    <!-- 引入统一导航栏 -->
+    <script src="js/nav.js"></script>
+</body>
+
+</html>
