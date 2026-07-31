@@ -36,15 +36,15 @@
 
       <view class="row-between">
         <text>保存正文后自动维护大纲</text>
-        <switch :checked="autoMaintainOutline" @change="onAutoMaintain" color="#0f766e" />
+        <switch :checked="autoMaintainOutline" @change="onAutoMaintain" :color="themeControlColor" />
       </view>
       <view class="row-between">
         <text>对话默认注入大纲</text>
-        <switch :checked="injectOutlineByDefault" @change="onInjectDefault" color="#0f766e" />
+        <switch :checked="injectOutlineByDefault" @change="onInjectDefault" :color="themeControlColor" />
       </view>
       <view class="row-between">
         <text>关键词注入设定卡</text>
-        <switch :checked="injectLoreByKeyword" @change="onInjectLore" color="#0f766e" />
+        <switch :checked="injectLoreByKeyword" @change="onInjectLore" :color="themeControlColor" />
       </view>
 
       <view class="row">
@@ -69,10 +69,13 @@ import { computed, ref } from 'vue'
 import { pingProvider } from '@/ai/client'
 import { importAll, uploadAll } from '@/sync'
 import { PROVIDERS } from '@/constants/providers'
+import { THEME_CONTROL_COLOR } from '@/constants/theme'
 import type { Provider } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 import { useNovelStore } from '@/stores/novel'
 import { useSettingsStore } from '@/stores/settings'
+
+const themeControlColor = THEME_CONTROL_COLOR
 
 const auth = useAuthStore()
 const settingsStore = useSettingsStore()
@@ -269,13 +272,13 @@ function onImport() {
   margin: 12rpx 0;
 }
 .field {
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 16rpx;
   border-radius: 8rpx;
   margin-bottom: 12rpx;
 }
 .picker {
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 16rpx;
   border-radius: 8rpx;
   margin-bottom: 12rpx;

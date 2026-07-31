@@ -109,7 +109,7 @@ function Show-Menu {
     Write-Host ''
     Write-Host '========== my-utils 启动菜单 ==========' -ForegroundColor Cyan
     Write-Host '  1) tools/node     Express 本地工具服务'
-    Write-Host '  2) apps/mini      Nest + 可选 H5/微信小程序'
+    Write-Host '  2) apps/mini      Nest + 可选 H5/微信小程序 (yarn)'
     Write-Host '  3) tools/web      浏览器打开 Web 工具门户'
     Write-Host '  4) javaTool       Java 项目启停 GUI'
     Write-Host '  5) 全部服务       node + mini'

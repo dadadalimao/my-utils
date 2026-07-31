@@ -376,12 +376,12 @@ function saveOutline() {
   flex: 1;
   text-align: center;
   padding: 16rpx;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 12rpx;
 }
 .tabs .active {
-  background: #0f766e;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 }
 .card-fill {
   flex: 1;
@@ -403,7 +403,7 @@ function saveOutline() {
   font-weight: 600;
   margin-bottom: 16rpx;
   padding: 12rpx;
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   border-radius: 8rpx;
 }
 /** 原生 textarea 不吃 flex，用占位层撑高后再绝对填满 */
@@ -418,7 +418,7 @@ function saveOutline() {
   inset: 0;
   width: 100%;
   height: 100%;
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 16rpx;
   border-radius: 8rpx;
   box-sizing: border-box;
@@ -427,13 +427,13 @@ function saveOutline() {
   flex-shrink: 0;
   text-align: right;
   font-size: 22rpx;
-  color: #a8a29e;
+  color: var(--color-text-faint);
   margin-bottom: 16rpx;
 }
 .small {
   width: 100%;
   min-height: 160rpx;
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 16rpx;
   border-radius: 8rpx;
   box-sizing: border-box;
@@ -443,12 +443,12 @@ function saveOutline() {
   min-height: 200rpx;
 }
 .small.ai-prompt-input {
-  background-color: #ccfbf1;
+  background-color: var(--color-ai-prompt);
 }
 .label {
   flex-shrink: 0;
   margin: 8rpx 0;
-  color: #57534e;
+  color: var(--color-text-secondary);
 }
 .btn-primary,
 .btn-ghost {
@@ -461,7 +461,7 @@ function saveOutline() {
 .ai-section {
   margin-top: 8rpx;
   padding-top: 16rpx;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--color-border);
 }
 .section-title {
   font-weight: 600;
@@ -474,7 +474,7 @@ function saveOutline() {
   margin-bottom: 8rpx;
 }
 .box {
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 16rpx;
   border-radius: 8rpx;
   font-size: 26rpx;
@@ -485,12 +485,12 @@ function saveOutline() {
   word-break: break-word;
 }
 .box.ai-generated {
-  background-color: #fff7ed;
+  background-color: var(--color-ai-output);
 }
 .mask {
   position: fixed;
   inset: 0;
-  background: rgba(28, 25, 23, 0.45);
+  background: var(--color-mask);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -501,7 +501,7 @@ function saveOutline() {
 .panel {
   width: 100%;
   max-height: 80vh;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 24rpx;
   padding: 32rpx;
   box-sizing: border-box;

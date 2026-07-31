@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { applyLoreOps, extractLoreOpsFromChapter } from '@/ai/loreExtract'
 import { localRepository } from '@/repository/localRepository'
 import { storageGet, storageRemove, storageSet } from '@/repository/storage'
-import type { LoreCard, LoreCardKind, LoreCardOp } from '@/types'
+import type { LoreCard, LoreCardKind, LoreCardOp, LoreStateEntry } from '@/types'
 import { useNovelStore } from './novel'
 import { useSettingsStore } from './settings'
 
@@ -33,7 +33,9 @@ export const useLoreStore = defineStore('lore', () => {
     kind: LoreCardKind
     name: string
     keywords: string[]
-    content: string
+    content?: string
+    core?: string
+    states?: LoreStateEntry[]
   }) {
     const novel = useNovelStore()
     if (!novel.currentNovelId) throw new Error('请先选择小说')

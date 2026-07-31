@@ -1,4 +1,5 @@
 import { localRepository } from '@/repository/localRepository'
+import { assembleLoreView } from '@/types'
 
 /** OpenAI 兼容 tool 定义 */
 export const NOVEL_TOOLS = [
@@ -7,6 +8,18 @@ export const NOVEL_TOOLS = [
     function: {
       name: 'list_chapters',
       description: '列出当前小说全部章节（章序、标题、是否有正文、大纲摘要）',
+      parameters: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_book_outline',
+      description: '获取本书全书剧情大纲（总纲/分幕主线）；若未填写则返回空提示',
       parameters: {
         type: 'object',
         properties: {},
@@ -77,12 +90,16 @@ export const NOVEL_TOOLS = [
     function: {
       name: 'get_lore_card',
       description:
-        '按 id 或名称/关键词获取完整设定卡。道具卡含功能数值、使用条件、持有与状态等具体数据',
+        '按 id 或名称/关键词获取设定卡。返回本体 core，以及 asOfOrder 时点下的生效阶段；不传 asOfOrder 时返回本体+阶段摘要列表',
       parameters: {
         type: 'object',
         properties: {
           id: { type: 'string' },
           name: { type: 'string', description: '名称或关键词' },
+          asOfOrder: {
+            type: 'number',
+            description: '按该章序组装「当前视角」（本体+该章前最近阶段）',
+          },
         },
         additionalProperties: false,
       },
@@ -96,7 +113,8 @@ export const NOVEL_TOOLS = [
 export function toolsSystemHint(writingTargetLabel?: string): string {
   const target = writingTargetLabel?.trim()
   const lines = [
-    '需要查阅其他章节大纲/正文，或补查未在提示中出现的人物/道具设定时，请调用提供的工具，勿臆造已有内容。',
+    '需要查阅全书大纲、其他章节大纲/正文，或补查未在提示中出现的人物/道具设定时，请调用提供的工具，勿臆造已有内容。',
+    '人物/道具卡请用 get_lore_card；长篇成长信息在阶段字段，勿把过时状态当成当前。',
   ]
   if (target) {
     lines.push(
@@ -110,6 +128,7 @@ export function toolStatusLabel(name: string, argsJson: string): string {
   try {
     const args = JSON.parse(argsJson || '{}') as Record<string, unknown>
     if (name === 'list_chapters') return '查阅章节目录…'
+    if (name === 'get_book_outline') return '查阅全书大纲…'
     if (name === 'get_chapter_outline') return `查阅第 ${args.order} 章大纲…`
     if (name === 'get_chapter_content') {
       const n = args.maxChars != null ? `（最多 ${args.maxChars} 字）` : ''
@@ -126,11 +145,13 @@ export function toolStatusLabel(name: string, argsJson: string): string {
 
 /**
  * 在本地执行工具，返回给模型的 JSON 字符串。
+ * @param options.defaultAsOfOrder 未传 asOfOrder 时，get_lore_card 默认按该章组装
  */
 export function executeNovelTool(
   novelId: string,
   name: string,
   argsJson: string,
+  options?: { defaultAsOfOrder?: number },
 ): string {
   let args: Record<string, unknown> = {}
   try {
@@ -148,6 +169,15 @@ export function executeNovelTool(
         outlineSummary: c.outline?.summary || '',
       }))
       return JSON.stringify({ chapters: list })
+    }
+
+    if (name === 'get_book_outline') {
+      const novel = localRepository.getNovel(novelId)
+      const outline = novel?.meta?.bookOutline?.trim() || ''
+      return JSON.stringify({
+        hasOutline: !!outline,
+        bookOutline: outline || '（尚未填写全书大纲）',
+      })
     }
 
     if (name === 'get_chapter_outline') {
@@ -168,7 +198,6 @@ export function executeNovelTool(
       const full = ch.content || ''
       let maxChars = Number(args.maxChars)
       const from = args.from === 'head' ? 'head' : 'tail'
-      // 未传或非法/≤0：不截断
       const limit =
         Number.isFinite(maxChars) && maxChars > 0 ? Math.floor(maxChars) : 0
       const truncated = limit > 0 && full.length > limit
@@ -196,7 +225,8 @@ export function executeNovelTool(
         kind: c.kind,
         name: c.name,
         keywords: c.keywords,
-        summary: (c.content || '').slice(0, 120),
+        summary: (c.core || c.content || '').slice(0, 120),
+        stateCount: c.states?.length || 0,
       }))
       return JSON.stringify({ cards })
     }
@@ -207,7 +237,38 @@ export function executeNovelTool(
         name: typeof args.name === 'string' ? args.name : undefined,
       })
       if (!card) return JSON.stringify({ error: 'lore card not found' })
-      return JSON.stringify(card)
+      const asOf =
+        args.asOfOrder != null && Number.isFinite(Number(args.asOfOrder))
+          ? Math.floor(Number(args.asOfOrder))
+          : options?.defaultAsOfOrder != null && Number.isFinite(options.defaultAsOfOrder)
+            ? Math.floor(options.defaultAsOfOrder)
+            : undefined
+      if (asOf != null) {
+        const view = assembleLoreView(card, asOf)
+        return JSON.stringify({
+          id: card.id,
+          kind: card.kind,
+          name: card.name,
+          keywords: card.keywords,
+          asOfOrder: asOf,
+          core: view.core,
+          activeState: view.state,
+          assembled: view.text,
+        })
+      }
+      return JSON.stringify({
+        id: card.id,
+        kind: card.kind,
+        name: card.name,
+        keywords: card.keywords,
+        core: card.core || card.content,
+        states: (card.states || []).map((s) => ({
+          id: s.id,
+          fromOrder: s.fromOrder,
+          label: s.label,
+          summary: (s.content || '').slice(0, 160),
+        })),
+      })
     }
 
     return JSON.stringify({ error: `unknown tool: ${name}` })

@@ -3,9 +3,29 @@
     <view class="header" v-if="novel.currentNovel">
       <text class="book">{{ novel.currentNovel.title }}</text>
       <view class="header-links">
+        <text class="link" @click="goBookOutline">全书大纲</text>
         <text class="link" @click="goBible">本书设定</text>
         <text class="link" @click="goLore">设定卡</text>
       </view>
+    </view>
+
+    <view v-if="showMigrateBanner" class="card migrate-banner">
+      <view class="migrate-title">可升级为长篇规范</view>
+      <view class="muted migrate-desc">
+        旧书当前为轻量模式。升级后写正文将强制全书大纲 + 章纲，设定卡支持本体/时间线。
+      </view>
+      <view class="row">
+        <view class="btn-primary mini-btn" @click="goMigrate">升级向导</view>
+        <text class="link" @click="dismissMigrate">暂不提示</text>
+      </view>
+    </view>
+
+    <view v-if="isLong" class="card mode-bar">
+      <text class="mode-pill">长篇规范</text>
+      <text class="muted" v-if="novel.currentNovel?.meta?.targetWords">
+        预计 {{ novel.currentNovel.meta.targetWords }} 字
+      </text>
+      <text class="link" @click="switchToLight">改回轻量</text>
     </view>
 
     <view
@@ -28,7 +48,6 @@
     </view>
     <view v-if="!novel.chapters.length" class="muted empty">暂无章节，点右下角 + 开始创作</view>
 
-    <!-- 右下角巨大 + ：新建章节并进入工作台 -->
     <view class="fab" @click="onCreate">
       <text class="fab-plus">+</text>
     </view>
@@ -36,14 +55,27 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import { getWritingMode } from '@/types'
+import { storageGet, storageSet } from '@/repository/storage'
 import { useNovelStore } from '@/stores/novel'
 
 const novel = useNovelStore()
+const dismissedIds = ref<string[]>(storageGet<string[]>('migrateBannerDismissed', []))
+
+const isLong = computed(() => getWritingMode(novel.currentNovel?.meta) === 'long')
+
+const showMigrateBanner = computed(() => {
+  const n = novel.currentNovel
+  if (!n) return false
+  if (getWritingMode(n.meta) === 'long') return false
+  if (n.meta?.migratedAt) return false
+  return !dismissedIds.value.includes(n.id)
+})
 
 onShow(() => novel.refresh())
 
-/** 新建章节 → 工作台创作 */
 function onCreate() {
   uni.showModal({
     title: '新章节创作',
@@ -63,13 +95,11 @@ function onCreate() {
   })
 }
 
-/** 点章节 → 进入工作台 */
 function goWorkbench(id: string) {
   novel.selectChapter(id)
   uni.navigateTo({ url: '/pages/workbench/index' })
 }
 
-/** 查看/修改正文与大纲 */
 function openDetail(id: string) {
   uni.navigateTo({ url: `/pages/chapter-detail/index?id=${id}` })
 }
@@ -80,6 +110,36 @@ function goLore() {
 
 function goBible() {
   uni.navigateTo({ url: '/pages/bible/index' })
+}
+
+function goBookOutline() {
+  uni.navigateTo({ url: '/pages/book-outline/index' })
+}
+
+function goMigrate() {
+  uni.navigateTo({ url: '/pages/migrate/index' })
+}
+
+function dismissMigrate() {
+  const id = novel.currentNovelId
+  if (!id) return
+  if (!dismissedIds.value.includes(id)) {
+    dismissedIds.value = [...dismissedIds.value, id]
+    storageSet('migrateBannerDismissed', dismissedIds.value)
+  }
+}
+
+function switchToLight() {
+  if (!novel.currentNovelId) return
+  uni.showModal({
+    title: '改回轻量模式',
+    content: '将取消长篇写正文门禁；全书大纲与设定卡时间线数据会保留。',
+    success: (res) => {
+      if (!res.confirm || !novel.currentNovelId) return
+      novel.updateNovelMeta(novel.currentNovelId, { writingMode: 'light' })
+      uni.showToast({ title: '已改为轻量', icon: 'success' })
+    },
+  })
 }
 
 function onDelete(id: string) {
@@ -109,14 +169,49 @@ function onDelete(id: string) {
 }
 .header-links {
   display: flex;
-  gap: 20rpx;
+  gap: 16rpx;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .book {
   font-weight: 600;
   font-size: 32rpx;
   flex: 1;
   margin-right: 16rpx;
+}
+.migrate-banner {
+  border: 1px solid var(--color-warning);
+  background: var(--color-warning-bg);
+  margin-bottom: 16rpx;
+}
+.migrate-title {
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+.migrate-desc {
+  font-size: 24rpx;
+  line-height: 1.5;
+  margin-bottom: 12rpx;
+}
+.mini-btn {
+  display: inline-flex;
+  padding: 12rpx 24rpx;
+  font-size: 26rpx;
+}
+.mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 16rpx;
+  flex-wrap: wrap;
+}
+.mode-pill {
+  font-size: 22rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 .title-row {
   display: flex;
@@ -130,8 +225,8 @@ function onDelete(id: string) {
 }
 .tag {
   font-size: 22rpx;
-  color: #0f766e;
-  background: #ccfbf1;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
   padding: 4rpx 12rpx;
   border-radius: 8rpx;
 }
@@ -139,12 +234,13 @@ function onDelete(id: string) {
   display: flex;
   gap: 24rpx;
   margin-top: 12rpx;
+  align-items: center;
 }
 .link {
-  color: #0f766e;
+  color: var(--color-accent);
 }
 .danger {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 .empty {
   text-align: center;
@@ -157,15 +253,15 @@ function onDelete(id: string) {
   width: 128rpx;
   height: 128rpx;
   border-radius: 64rpx;
-  background: #0f766e;
-  box-shadow: 0 12rpx 32rpx rgba(15, 118, 110, 0.45);
+  background: var(--color-primary);
+  box-shadow: 0 12rpx 32rpx var(--color-fab-shadow);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
 }
 .fab-plus {
-  color: #fff;
+  color: var(--color-primary-contrast);
   font-size: 80rpx;
   line-height: 1;
   font-weight: 300;

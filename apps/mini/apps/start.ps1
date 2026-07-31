@@ -50,8 +50,8 @@ function Start-WtCmd {
   启动 NestJS 后端（独立 wt 窗口）。
 #>
 function Start-MiniServer {
-    Start-WtCmd -Title 'novel-ai-server' -WorkDir $ServerDir -CmdLine 'npm run start:dev'
-    Write-Host '已打开: novel-ai-server -> npm run start:dev' -ForegroundColor Green
+    Start-WtCmd -Title 'novel-ai-server' -WorkDir $ServerDir -CmdLine 'yarn start:dev'
+    Write-Host '已打开: novel-ai-server -> yarn start:dev' -ForegroundColor Green
 }
 
 <#
@@ -59,8 +59,8 @@ function Start-MiniServer {
   启动 H5 客户端（uni，独立 wt 窗口）。
 #>
 function Start-ClientH5 {
-    Start-WtCmd -Title 'novel-ai-h5' -WorkDir $ClientDir -CmdLine 'npm run dev:h5'
-    Write-Host '已打开: novel-ai-h5 -> npm run dev:h5' -ForegroundColor Green
+    Start-WtCmd -Title 'novel-ai-h5' -WorkDir $ClientDir -CmdLine 'yarn dev:h5'
+    Write-Host '已打开: novel-ai-h5 -> yarn dev:h5' -ForegroundColor Green
     Write-Host '浏览器访问终端里提示的本地地址（一般为 http://localhost:5173）' -ForegroundColor DarkGray
 }
 
@@ -69,8 +69,8 @@ function Start-ClientH5 {
   启动微信小程序客户端（独立 wt 窗口）。
 #>
 function Start-ClientMpWeixin {
-    Start-WtCmd -Title 'novel-ai-mp-weixin' -WorkDir $ClientDir -CmdLine 'npm run dev:mp-weixin'
-    Write-Host '已打开: novel-ai-mp-weixin -> npm run dev:mp-weixin' -ForegroundColor Green
+    Start-WtCmd -Title 'novel-ai-mp-weixin' -WorkDir $ClientDir -CmdLine 'yarn dev:mp-weixin'
+    Write-Host '已打开: novel-ai-mp-weixin -> yarn dev:mp-weixin' -ForegroundColor Green
     Write-Host '请用微信开发者工具导入 client/dist/dev/mp-weixin' -ForegroundColor DarkGray
 }
 
@@ -78,8 +78,8 @@ function Show-ClientMenu {
     Write-Host ''
     Write-Host '========== Mini 启动 ==========' -ForegroundColor Cyan
     Write-Host '  将启动后端，并选择客户端：'
-    Write-Host '  1) H5 / Web          npm run dev:h5'
-    Write-Host '  2) 微信小程序        npm run dev:mp-weixin'
+    Write-Host '  1) H5 / Web          yarn dev:h5'
+    Write-Host '  2) 微信小程序        yarn dev:mp-weixin'
     Write-Host '  3) 仅后端            不启动客户端'
     Write-Host '  0) 取消'
     Write-Host '==============================='

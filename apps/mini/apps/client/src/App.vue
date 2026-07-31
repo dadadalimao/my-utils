@@ -13,42 +13,60 @@ onLaunch(() => {
 </script>
 
 <style>
+/* 必须经 App.vue 样式打包进 app.wxss；仅 main.ts import 在小程序不可靠 */
+@import './styles/theme.css';
+
 page {
-  background: #f7f4ef;
-  color: #1c1917;
+  background: var(--color-bg);
+  color: var(--color-text);
   font-size: 28rpx;
 }
+
 .btn-primary {
-  background: #0f766e;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
   border-radius: 12rpx;
   padding: 20rpx 32rpx;
   text-align: center;
 }
+
 .btn-ghost {
-  background: #fff;
-  color: #0f766e;
-  border: 1px solid #0f766e;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
   border-radius: 12rpx;
   padding: 20rpx 32rpx;
   text-align: center;
 }
+
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 16rpx;
   padding: 24rpx;
   margin-bottom: 20rpx;
+  border: 1px solid var(--color-border);
 }
+
 .muted {
-  color: #78716c;
+  color: var(--color-text-muted);
   font-size: 24rpx;
 }
+
 /** 用户提示词输入框 */
 .ai-prompt-input {
-  background-color: #ccfbf1;
+  background-color: var(--color-ai-prompt);
 }
+
 /** AI 生成内容（与工作台修订底稿同色） */
 .ai-generated {
-  background-color: #fff7ed;
+  background-color: var(--color-ai-output);
+}
+
+.link {
+  color: var(--color-accent);
+}
+
+.danger {
+  color: var(--color-danger);
 }
 </style>

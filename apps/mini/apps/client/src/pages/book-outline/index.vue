@@ -1,33 +1,21 @@
 <template>
   <view class="page" v-if="novel.currentNovel">
     <view class="card head">
-      <view class="title">{{ novel.currentNovel.title }} · 本书设定</view>
+      <view class="title">{{ novel.currentNovel.title }} · 全书大纲</view>
       <view class="muted hint">
-        世界观、道具品质、高潮符号惯例等写在这里；写作时会自动注入。点标签可插入【分节】。
+        写全书主线、分幕/分卷与关键转折。长篇模式下生成正文前必须填写；写作时会注入上下文，也可用工具查阅。
       </view>
     </view>
 
     <view class="card">
-      <view class="label">快速插入标签</view>
-      <view class="tags">
-        <view
-          v-for="tag in tags"
-          :key="tag"
-          class="tag"
-          @click="onInsertTag(tag)"
-        >
-          【{{ tag }}】
-        </view>
-      </view>
-
-      <view class="label">设定正文</view>
+      <view class="label">大纲正文</view>
       <textarea
-        v-model="bible"
+        v-model="outline"
         class="area ai-prompt-input"
-        :placeholder="biblePlaceholder"
-        :maxlength="20000"
+        :placeholder="outlinePlaceholder"
+        :maxlength="30000"
       />
-      <view class="input-meta">{{ bible.length }}/20000</view>
+      <view class="input-meta">{{ outline.length }}/30000</view>
 
       <view class="label">AI 辅助（可选）</view>
       <textarea
@@ -41,9 +29,12 @@
         <view class="btn-ghost" :class="{ disabled: busy }" @click="onAssist">
           {{ assisting ? '辅助中…' : 'AI 辅助撰写' }}
         </view>
-        <view class="btn-primary" :class="{ disabled: busy }" @click="onSave">
-          {{ saving ? '保存中…' : '保存（自动格式化）' }}
+        <view class="btn-ghost" :class="{ disabled: busy }" @click="onDraftFromChapters">
+          {{ drafting ? '生成中…' : '从章纲生成初稿' }}
         </view>
+      </view>
+      <view class="btn-primary save-btn" :class="{ disabled: busy }" @click="onSave">
+        {{ saving ? '保存中…' : '保存' }}
       </view>
     </view>
 
@@ -66,39 +57,29 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import {
-  assistNovelBible,
-  BIBLE_TAGS,
-  formatNovelBible,
-  insertBibleTag,
-} from '@/ai/novelBible'
+import { assistBookOutline, draftBookOutlineFromChapters } from '@/ai/bookOutline'
 import { useNovelStore } from '@/stores/novel'
 import { useSettingsStore } from '@/stores/settings'
 
 const novel = useNovelStore()
 const settings = useSettingsStore()
-const bible = ref('')
+const outline = ref('')
 const assistPrompt = ref('')
 const assisting = ref(false)
+const drafting = ref(false)
 const saving = ref(false)
 const preview = ref<{ title: string; text: string } | null>(null)
 
-const tags = BIBLE_TAGS
-const busy = computed(() => assisting.value || saving.value)
-/** 小程序 WXML 属性不能含真实换行，placeholder 放脚本里 */
-const biblePlaceholder =
-  '点上方标签插入【分节】，例如：世界观、道具品质、高潮惯例…'
+const busy = computed(() => assisting.value || drafting.value || saving.value)
+const outlinePlaceholder =
+  '例如：三幕结构、各阶段核心事件、主题与角色定位…'
 const assistPlaceholder =
-  '例如：补全品质色与词条习惯；高潮符号惯例；力量体系写清楚…'
+  '例如：补全第二幕宇宙探索阶段；标明最终 BOSS 与主角命途…'
 
 onShow(() => {
   novel.refresh()
-  bible.value = novel.currentNovel?.meta?.bible || ''
+  outline.value = novel.currentNovel?.meta?.bookOutline || ''
 })
-
-function onInsertTag(tag: string) {
-  bible.value = insertBibleTag(bible.value, tag)
-}
 
 async function onAssist() {
   if (busy.value) return
@@ -110,8 +91,8 @@ async function onAssist() {
     assisting.value = true
     uni.showLoading({ title: 'AI 辅助中', mask: true })
     const provider = settings.settings.defaultProvider
-    const text = await assistNovelBible({
-      current: bible.value,
+    const text = await assistBookOutline({
+      current: outline.value,
       userPrompt: assistPrompt.value,
       provider,
       apiKey: settings.apiKeyFor(provider),
@@ -126,57 +107,46 @@ async function onAssist() {
   }
 }
 
-function applyPreview() {
-  if (!preview.value) return
-  bible.value = preview.value.text
-  preview.value = null
-  uni.showToast({ title: '已写入编辑区，可再保存', icon: 'none' })
-}
-
-async function onSave() {
+async function onDraftFromChapters() {
   if (busy.value || !novel.currentNovelId) return
-  const raw = bible.value.trim()
-  if (!raw) {
-    persist('')
-    return
-  }
   try {
-    saving.value = true
-    uni.showLoading({ title: '格式化并保存', mask: true })
+    drafting.value = true
+    uni.showLoading({ title: '根据章纲生成', mask: true })
     const provider = settings.settings.defaultProvider
-    const formatted = await formatNovelBible({
-      text: raw,
+    const text = await draftBookOutlineFromChapters({
+      novelId: novel.currentNovelId,
       provider,
       apiKey: settings.apiKeyFor(provider),
       model: settings.settings.defaultModel,
     })
-    bible.value = formatted
-    persist(formatted)
+    preview.value = { title: '确认采用大纲初稿', text }
   } catch (e) {
-    uni.hideLoading()
-    saving.value = false
-    uni.showModal({
-      title: '格式化失败',
-      content: `${(e as Error).message || '未知错误'}。是否仍保存当前原文？`,
-      success: (res) => {
-        if (res.confirm) persist(raw)
-      },
-    })
-    return
+    uni.showToast({ title: (e as Error).message, icon: 'none' })
   } finally {
-    saving.value = false
+    drafting.value = false
     uni.hideLoading()
   }
 }
 
-function persist(text: string) {
-  if (!novel.currentNovelId) return
+function applyPreview() {
+  if (!preview.value) return
+  outline.value = preview.value.text
+  preview.value = null
+  uni.showToast({ title: '已写入编辑区，可再保存', icon: 'none' })
+}
+
+function onSave() {
+  if (busy.value || !novel.currentNovelId) return
   try {
-    novel.updateNovelMeta(novel.currentNovelId, { bible: text })
-    bible.value = text
+    saving.value = true
+    novel.updateNovelMeta(novel.currentNovelId, {
+      bookOutline: outline.value.trim(),
+    })
     uni.showToast({ title: '已保存', icon: 'success' })
   } catch (e) {
     uni.showToast({ title: (e as Error).message, icon: 'none' })
+  } finally {
+    saving.value = false
   }
 }
 </script>
@@ -198,22 +168,9 @@ function persist(text: string) {
   margin: 12rpx 0 8rpx;
   color: var(--color-text-secondary);
 }
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-  margin-bottom: 8rpx;
-}
-.tag {
-  padding: 10rpx 16rpx;
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  border-radius: 8rpx;
-  font-size: 24rpx;
-}
 .area {
   width: 100%;
-  min-height: 420rpx;
+  min-height: 480rpx;
   padding: 16rpx;
   border-radius: 8rpx;
   box-sizing: border-box;
@@ -235,6 +192,9 @@ function persist(text: string) {
 }
 .row > view {
   flex: 1;
+}
+.save-btn {
+  margin-top: 20rpx;
 }
 .disabled {
   opacity: 0.6;

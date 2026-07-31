@@ -9,6 +9,22 @@
     </view>
     <view v-else class="card muted">请先从小说列表进入</view>
 
+    <view v-if="writingProgress" class="card progress-card">
+      <view class="progress-title">长篇规范进度</view>
+      <view class="progress-row">
+        <view
+          v-for="item in writingProgress"
+          :key="item.key"
+          class="progress-item"
+          :class="{ done: item.done, clickable: !!item.navigateTo }"
+          @click="onProgressTap(item)"
+        >
+          <text class="progress-mark">{{ item.done ? '✓' : '○' }}</text>
+          <text class="progress-label">{{ item.label }}</text>
+        </view>
+      </view>
+    </view>
+
     <view class="toolbar">
       <view class="mode-trigger" @click="modeSheetOpen = true">
         <view class="mode-trigger-main">
@@ -55,7 +71,7 @@
         v-for="msg in chat.messages"
         :key="msg.id"
         class="msg"
-        :class="[msg.role, msg.role === 'assistant' ? 'ai-generated' : '']"
+        :class="msg.role"
       >
         <view class="msg-body" user-select selectable>{{ msg.content }}</view>
         <view v-if="!msg.content && msg.role === 'assistant' && chat.loading" class="muted streaming">
@@ -175,7 +191,7 @@
 
         <view class="label row-between">
           <text>修订模式</text>
-          <switch :checked="chat.reviseMode" @change="onReviseChange" color="#0f766e" />
+          <switch :checked="chat.reviseMode" @change="onReviseChange" :color="themeControlColor" />
         </view>
         <view class="hint muted">
           开：按底稿局部修改。无底稿（新章）时自动按新创作发送。底稿优先「最近生成」，其次「当前章正文」。
@@ -184,13 +200,13 @@
 
         <view class="label row-between">
           <text>关键词注入设定卡</text>
-          <switch :checked="chat.injectLore" @change="onInjectLoreChange" color="#0f766e" />
+          <switch :checked="chat.injectLore" @change="onInjectLoreChange" :color="themeControlColor" />
         </view>
         <view class="hint muted">发送内容命中人物/道具关键词时，自动把对应设定塞进提示词。</view>
 
         <view class="label row-between">
           <text>注入大纲</text>
-          <switch :checked="chat.injectOutline" @change="onInjectChange" color="#0f766e" />
+          <switch :checked="chat.injectOutline" @change="onInjectChange" :color="themeControlColor" />
         </view>
         <view v-if="chat.injectOutline" class="range">
           <picker :range="rangeLabels" @change="onRangeType">
@@ -224,11 +240,17 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import type { ChatMode } from '@/types'
+import {
+  buildWritingProgress,
+  type WritingProgressItem,
+} from '@/ai/writingGate'
+import { THEME_CONTROL_COLOR } from '@/constants/theme'
 import { useChatStore } from '@/stores/chat'
 import { useNovelStore } from '@/stores/novel'
 import SaveContentDone from '@/components/SaveContentDone.vue'
 import { useLoreStore } from '@/stores/lore'
 
+const themeControlColor = THEME_CONTROL_COLOR
 const chat = useChatStore()
 const novel = useNovelStore()
 const lore = useLoreStore()
@@ -258,6 +280,19 @@ const modes: { id: ChatMode; label: string; desc: string }[] = [
 const currentModeLabel = computed(
   () => modes.find((m) => m.id === chat.mode)?.label || '章节',
 )
+
+const writingProgress = computed(() =>
+  buildWritingProgress({
+    novel: novel.currentNovel,
+    currentChapterId: novel.currentChapterId,
+  }),
+)
+
+function onProgressTap(item: WritingProgressItem) {
+  if (item.navigateTo) {
+    uni.navigateTo({ url: item.navigateTo })
+  }
+}
 
 const logAnchor = computed(() =>
   chat.activityLog.length ? 'log-end' : '',
@@ -545,9 +580,43 @@ function onSaveOutline() {
   flex: 1;
 }
 .chapters-link {
-  color: #0f766e;
+  color: var(--color-accent);
   font-size: 26rpx;
   flex-shrink: 0;
+}
+.progress-card {
+  margin-bottom: 12rpx;
+  padding: 16rpx 20rpx;
+}
+.progress-title {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  margin-bottom: 12rpx;
+}
+.progress-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.progress-item {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-size: 26rpx;
+  color: var(--color-text-faint);
+}
+.progress-item.done {
+  color: var(--color-accent);
+}
+.progress-item.clickable {
+  color: var(--color-text-secondary);
+}
+.progress-mark {
+  width: 32rpx;
+  text-align: center;
+}
+.progress-label {
+  flex: 1;
 }
 .toolbar {
   display: flex;
@@ -561,10 +630,10 @@ function onSaveOutline() {
   align-items: center;
   justify-content: space-between;
   gap: 12rpx;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 12rpx;
   padding: 16rpx 20rpx;
-  border: 1px solid #0f766e;
+  border: 1px solid var(--color-accent);
   box-sizing: border-box;
 }
 .mode-trigger-main {
@@ -575,17 +644,17 @@ function onSaveOutline() {
 }
 .mode-trigger-label {
   font-size: 20rpx;
-  color: #78716c;
+  color: var(--color-text-muted);
 }
 .mode-trigger-value {
   font-size: 30rpx;
   font-weight: 600;
-  color: #0f766e;
+  color: var(--color-accent);
 }
 .mode-chevron {
   flex-shrink: 0;
   font-size: 24rpx;
-  color: #0f766e;
+  color: var(--color-accent);
 }
 .mode-option {
   display: flex;
@@ -594,13 +663,13 @@ function onSaveOutline() {
   gap: 16rpx;
   padding: 24rpx 20rpx;
   margin-bottom: 12rpx;
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   border-radius: 12rpx;
   border: 2rpx solid transparent;
 }
 .mode-option.active {
-  background: #ccfbf1;
-  border-color: #0f766e;
+  background: var(--color-ai-prompt);
+  border-color: var(--color-accent);
 }
 .mode-option-text {
   display: flex;
@@ -616,7 +685,7 @@ function onSaveOutline() {
   font-size: 22rpx;
 }
 .mode-check {
-  color: #0f766e;
+  color: var(--color-accent);
   font-size: 32rpx;
   font-weight: 700;
 }
@@ -624,7 +693,7 @@ function onSaveOutline() {
   position: relative;
   width: 72rpx;
   height: 72rpx;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 12rpx;
   display: flex;
   align-items: center;
@@ -632,11 +701,11 @@ function onSaveOutline() {
   flex-shrink: 0;
 }
 .log-btn {
-  border: 1px solid #0f766e;
+  border: 1px solid var(--color-accent);
 }
 .log-icon {
   font-size: 26rpx;
-  color: #0f766e;
+  color: var(--color-accent);
   font-weight: 600;
 }
 .pulse {
@@ -646,38 +715,38 @@ function onSaveOutline() {
 .gear {
   width: 28rpx;
   height: 28rpx;
-  border: 4rpx solid #0f766e;
+  border: 4rpx solid var(--color-accent);
   border-radius: 50%;
   box-shadow:
-    0 -10rpx 0 -4rpx #0f766e,
-    0 10rpx 0 -4rpx #0f766e,
-    10rpx 0 0 -4rpx #0f766e,
-    -10rpx 0 0 -4rpx #0f766e,
-    7rpx 7rpx 0 -4rpx #0f766e,
-    -7rpx 7rpx 0 -4rpx #0f766e,
-    7rpx -7rpx 0 -4rpx #0f766e,
-    -7rpx -7rpx 0 -4rpx #0f766e;
+    0 -10rpx 0 -4rpx var(--color-accent),
+    0 10rpx 0 -4rpx var(--color-accent),
+    10rpx 0 0 -4rpx var(--color-accent),
+    -10rpx 0 0 -4rpx var(--color-accent),
+    7rpx 7rpx 0 -4rpx var(--color-accent),
+    -7rpx 7rpx 0 -4rpx var(--color-accent),
+    7rpx -7rpx 0 -4rpx var(--color-accent),
+    -7rpx -7rpx 0 -4rpx var(--color-accent);
 }
 .badge {
   position: absolute;
   top: -6rpx;
   right: -6rpx;
-  background: #b45309;
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-surface);
   font-size: 18rpx;
   padding: 2rpx 8rpx;
   border-radius: 8rpx;
 }
 .revise-tag {
-  background: #b45309;
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-surface);
   font-size: 22rpx;
   padding: 4rpx 12rpx;
   border-radius: 8rpx;
   flex-shrink: 0;
 }
 .draft-panel {
-  background: #fff7ed;
+  background: var(--color-ai-output);
   border-radius: 12rpx;
   margin-bottom: 8rpx;
   overflow: hidden;
@@ -697,7 +766,7 @@ function onSaveOutline() {
   min-width: 0;
 }
 .draft-toggle {
-  color: #0f766e;
+  color: var(--color-accent);
   font-size: 24rpx;
   flex-shrink: 0;
 }
@@ -711,7 +780,7 @@ function onSaveOutline() {
   word-break: break-word;
   font-size: 26rpx;
   line-height: 1.7;
-  color: #1c1917;
+  color: var(--color-text);
   user-select: text;
   -webkit-user-select: text;
 }
@@ -720,7 +789,7 @@ function onSaveOutline() {
 }
 .label {
   margin: 12rpx 0 8rpx;
-  color: #57534e;
+  color: var(--color-text-secondary);
 }
 .row-between {
   display: flex;
@@ -728,7 +797,7 @@ function onSaveOutline() {
   align-items: center;
 }
 .picker {
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 16rpx;
   border-radius: 8rpx;
 }
@@ -740,7 +809,7 @@ function onSaveOutline() {
 }
 .range-inputs input {
   flex: 1;
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 12rpx;
   border-radius: 8rpx;
 }
@@ -761,13 +830,16 @@ function onSaveOutline() {
   margin-bottom: 16rpx;
   padding: 20rpx;
   border-radius: 12rpx;
-  background: #fff;
+  background: var(--color-surface);
+  border: 1px solid transparent;
 }
 .msg-body {
   white-space: pre-wrap;
   word-break: break-word;
   user-select: text;
   -webkit-user-select: text;
+  line-height: 1.65;
+  color: var(--color-text);
 }
 .streaming {
   margin-top: 8rpx;
@@ -781,7 +853,7 @@ function onSaveOutline() {
 .log-scroll {
   max-height: 46vh;
   margin: 12rpx 0 8rpx;
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   border-radius: 12rpx;
   padding: 16rpx;
   box-sizing: border-box;
@@ -795,22 +867,22 @@ function onSaveOutline() {
 }
 .log-time {
   flex-shrink: 0;
-  color: #a8a29e;
+  color: var(--color-text-faint);
   font-variant-numeric: tabular-nums;
 }
 .log-text {
   flex: 1;
-  color: #1c1917;
+  color: var(--color-text);
   word-break: break-word;
 }
 .log-line.thinking .log-text {
-  color: #78716c;
+  color: var(--color-text-muted);
   font-style: italic;
 }
 .log-tag {
   display: inline;
   margin-right: 8rpx;
-  color: #a8a29e;
+  color: var(--color-text-faint);
   font-style: normal;
   font-size: 22rpx;
 }
@@ -827,7 +899,7 @@ function onSaveOutline() {
   flex: 1;
 }
 .danger-fill {
-  background: #b91c1c;
+  background: var(--color-danger);
 }
 .msg-actions {
   display: flex;
@@ -835,24 +907,25 @@ function onSaveOutline() {
   gap: 24rpx;
   margin-top: 12rpx;
   padding-top: 8rpx;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--color-border);
 }
 .act {
   font-size: 24rpx;
-  color: #0f766e;
+  color: var(--color-accent);
 }
 .msg.user {
-  background: #ccfbf1;
+  background: var(--color-chat-user);
+  border-color: var(--color-border);
 }
 .msg.assistant {
-  /* 与修订底稿同色 */
-  background: #fff7ed;
+  background: var(--color-chat-assistant);
+  border-color: var(--color-border);
 }
 .composer .input {
   width: 100%;
   min-height: 280rpx;
   max-height: 480rpx;
-  background: #ccfbf1;
+  background: var(--color-ai-prompt);
   padding: 16rpx;
   border-radius: 12rpx;
   box-sizing: border-box;
@@ -861,7 +934,7 @@ function onSaveOutline() {
   margin-top: 8rpx;
   text-align: right;
   font-size: 22rpx;
-  color: #a8a29e;
+  color: var(--color-text-faint);
 }
 .actions {
   display: flex;
@@ -881,7 +954,7 @@ function onSaveOutline() {
 .mask {
   position: fixed;
   inset: 0;
-  background: rgba(28, 25, 23, 0.45);
+  background: var(--color-mask);
   z-index: 900;
   display: flex;
   align-items: flex-end;
@@ -890,7 +963,7 @@ function onSaveOutline() {
   width: 100%;
   max-height: 80vh;
   overflow-y: auto;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 24rpx 24rpx 0 0;
   padding: 32rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;

@@ -9,6 +9,14 @@ import uni from '@dcloudio/vite-plugin-uni'
  */
 export default defineConfig({
   plugins: [uni()],
+  css: {
+    preprocessorOptions: {
+      scss: {
+        // 消除 legacy-js-api 弃用警告
+        api: 'modern-compiler',
+      },
+    },
+  },
   server: {
     proxy: {
       '/ai-proxy/deepseek': {

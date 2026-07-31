@@ -57,15 +57,15 @@ async function submit() {
   flex: 1;
   text-align: center;
   padding: 16rpx;
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   border-radius: 12rpx;
 }
 .tabs .active {
-  background: #0f766e;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 }
 .field {
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 20rpx;
   border-radius: 8rpx;
   margin-bottom: 16rpx;

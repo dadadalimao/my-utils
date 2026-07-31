@@ -28,7 +28,8 @@
     <view v-for="c in filtered" :key="c.id" class="card" @click="openEdit(c.id)">
       <view class="name">{{ c.name }}</view>
       <view class="muted">关键词：{{ (c.keywords || []).join('、') || '无' }}</view>
-      <view class="preview">{{ c.content.slice(0, 80) }}{{ c.content.length > 80 ? '…' : '' }}</view>
+      <view class="preview">{{ (c.core || c.content || '').slice(0, 80) }}{{ (c.core || c.content || '').length > 80 ? '…' : '' }}</view>
+      <view v-if="c.states?.length" class="muted">时间线 {{ c.states.length }} 个阶段</view>
       <view class="row">
         <text class="link" @click.stop="openEdit(c.id)">编辑</text>
         <text class="danger" @click.stop="onDelete(c.id)">删除</text>
@@ -142,13 +143,13 @@ async function onExtractCurrent() {
   flex: 1;
   text-align: center;
   padding: 16rpx;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 12rpx;
-  color: #78716c;
+  color: var(--color-text-muted);
 }
 .tabs .active {
-  background: #0f766e;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 }
 .toolbar {
   display: flex;
@@ -165,20 +166,20 @@ async function onExtractCurrent() {
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 12rpx;
   padding: 20rpx 24rpx;
   margin-bottom: 16rpx;
 }
 .chapter-label {
   flex-shrink: 0;
-  color: #78716c;
+  color: var(--color-text-muted);
   font-size: 26rpx;
 }
 .chapter-value {
   flex: 1;
   text-align: right;
-  color: #0f766e;
+  color: var(--color-accent);
   font-size: 26rpx;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -190,7 +191,7 @@ async function onExtractCurrent() {
 }
 .preview {
   margin-top: 8rpx;
-  color: #57534e;
+  color: var(--color-text-secondary);
   font-size: 26rpx;
   white-space: pre-wrap;
 }
@@ -200,10 +201,10 @@ async function onExtractCurrent() {
   margin-top: 12rpx;
 }
 .link {
-  color: #0f766e;
+  color: var(--color-accent);
 }
 .danger {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 .empty {
   text-align: center;

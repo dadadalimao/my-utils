@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { localRepository } from '@/repository/localRepository'
-import { normalizeOutline, type Chapter, type Novel } from '@/types'
+import { normalizeOutline, type Chapter, type Novel, type WritingMode } from '@/types'
 
 export const useNovelStore = defineStore('novel', () => {
   const novels = ref<Novel[]>([])
@@ -33,8 +33,11 @@ export const useNovelStore = defineStore('novel', () => {
     currentChapterId.value = chapters.value[0]?.id ?? null
   }
 
-  function createNovel(title: string) {
-    const n = localRepository.createNovel(title)
+  function createNovel(
+    title: string,
+    options?: { writingMode?: WritingMode; targetWords?: number },
+  ) {
+    const n = localRepository.createNovel(title, options)
     refresh()
     selectNovel(n.id)
     return n

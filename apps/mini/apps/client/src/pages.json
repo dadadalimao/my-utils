@@ -37,6 +37,18 @@
       }
     },
     {
+      "path": "pages/book-outline/index",
+      "style": {
+        "navigationBarTitleText": "全书大纲"
+      }
+    },
+    {
+      "path": "pages/migrate/index",
+      "style": {
+        "navigationBarTitleText": "升级长篇规范"
+      }
+    },
+    {
       "path": "pages/lore/edit",
       "style": {
         "navigationBarTitleText": "编辑设定卡"

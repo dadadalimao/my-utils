@@ -47,7 +47,7 @@ function emitBack() {
   right: 0;
   top: 0;
   bottom: 0;
-  background: rgba(28, 25, 23, 0.45);
+  background: var(--color-mask);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -58,7 +58,7 @@ function emitBack() {
 .panel {
   width: 100%;
   max-width: 560rpx;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 24rpx;
   padding: 40rpx 32rpx 32rpx;
   box-sizing: border-box;
@@ -72,7 +72,7 @@ function emitBack() {
   margin-top: 12rpx;
   margin-bottom: 36rpx;
   text-align: center;
-  color: #78716c;
+  color: var(--color-text-muted);
   font-size: 26rpx;
 }
 .btn {
@@ -80,17 +80,17 @@ function emitBack() {
   padding: 24rpx;
   border-radius: 12rpx;
   margin-bottom: 16rpx;
-  background: #f5f5f4;
-  color: #1c1917;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
   font-size: 30rpx;
 }
 .btn.primary {
-  background: #0f766e;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 }
 .btn.ghost {
   background: transparent;
-  color: #78716c;
+  color: var(--color-text-muted);
   margin-bottom: 0;
 }
 </style>

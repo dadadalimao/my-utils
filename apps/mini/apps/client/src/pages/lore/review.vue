@@ -20,7 +20,12 @@
           <view class="box">{{ oldMap[op.id || ''].slice(0, 200) }}{{ oldMap[op.id || ''].length > 200 ? '…' : '' }}</view>
           <view class="label">新设定</view>
         </view>
-        <view class="box ai-generated">{{ op.content }}</view>
+        <view v-if="op.core" class="label">本体</view>
+        <view class="box ai-generated">{{ op.core || op.content }}</view>
+        <view v-if="op.stateContent" class="label">
+          阶段（第{{ op.stateFromOrder || '?' }}章起{{ op.stateLabel ? ` · ${op.stateLabel}` : '' }}）
+        </view>
+        <view v-if="op.stateContent" class="box ai-generated">{{ op.stateContent }}</view>
         <text class="danger" @click="removeAt(idx)">移除此项</text>
       </view>
 
@@ -48,7 +53,7 @@ const oldMap = computed(() => {
   for (const op of ops.value) {
     if (op.action === 'update' && op.id) {
       const old = localRepository.getLoreCard(op.id)
-      if (old) map[op.id] = old.content
+      if (old) map[op.id] = old.core || old.content
     }
   }
   return map
@@ -106,18 +111,18 @@ function onConfirm() {
   font-size: 22rpx;
   padding: 4rpx 12rpx;
   border-radius: 8rpx;
-  background: #e7e5e4;
+  background: var(--color-border);
 }
 .tag.create {
-  background: #ccfbf1;
-  color: #0f766e;
+  background: var(--color-tag-create-bg);
+  color: var(--color-tag-create-text);
 }
 .tag.update {
-  background: #ffedd5;
-  color: #c2410c;
+  background: var(--color-tag-update-bg);
+  color: var(--color-tag-update-text);
 }
 .kind {
-  color: #78716c;
+  color: var(--color-text-muted);
   font-size: 24rpx;
 }
 .name {
@@ -125,11 +130,11 @@ function onConfirm() {
 }
 .label {
   margin: 12rpx 0 6rpx;
-  color: #57534e;
+  color: var(--color-text-secondary);
   font-size: 24rpx;
 }
 .box {
-  background: #f5f5f4;
+  background: var(--color-surface-muted);
   padding: 16rpx;
   border-radius: 8rpx;
   white-space: pre-wrap;
@@ -138,10 +143,10 @@ function onConfirm() {
   margin-bottom: 8rpx;
 }
 .box.ai-generated {
-  background-color: #fff7ed;
+  background-color: var(--color-ai-output);
 }
 .danger {
-  color: #b91c1c;
+  color: var(--color-danger);
   font-size: 24rpx;
 }
 .actions {

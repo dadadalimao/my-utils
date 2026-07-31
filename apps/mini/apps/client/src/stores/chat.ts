@@ -5,6 +5,7 @@ import {
   chatCompletionWithTools,
   type ChatCompletionMessage,
 } from '@/ai/client'
+import { buildBookOutlineInjectContent } from '@/ai/bookOutline'
 import { buildBibleInjectContent } from '@/ai/novelBible'
 import { buildLoreInjectMessage } from '@/ai/loreInject'
 import {
@@ -13,6 +14,7 @@ import {
   resolveWritingTarget,
 } from '@/ai/outlineInject'
 import { maintainOutlineFromContent } from '@/ai/outlineMaintain'
+import { checkWritingGate } from '@/ai/writingGate'
 import {
   generateChapterTitleFromContent,
   isPlaceholderChapterTitle,
@@ -23,7 +25,14 @@ import { builtinByMode, BUILTIN_TEMPLATES } from '@/constants/templates'
 import { apiFetchTemplates } from '@/api/http'
 import { localRepository } from '@/repository/localRepository'
 import { storageGet, storageSet } from '@/repository/storage'
-import { createId, type ChatMessage, type ChatMode, type OutlineRange, type PromptTemplate } from '@/types'
+import {
+  createId,
+  getWritingMode,
+  type ChatMessage,
+  type ChatMode,
+  type OutlineRange,
+  type PromptTemplate,
+} from '@/types'
 import { useAuthStore } from './auth'
 import { useNovelStore } from './novel'
 import { useSettingsStore } from './settings'
@@ -262,6 +271,31 @@ export const useChatStore = defineStore('chat', () => {
       uni.showToast({ title: '无底稿，已按新创作发送', icon: 'none' })
     }
 
+    const gate = checkWritingGate({
+      novel: novel.currentNovel,
+      currentChapterId: novel.currentChapterId,
+      chatMode: mode.value,
+      revise: useRevise,
+    })
+    if (!gate.ok) {
+      await new Promise<void>((resolve) => {
+        uni.showModal({
+          title: '长篇规范未满足',
+          content: gate.message,
+          confirmText: gate.navigateTo ? '去完善' : '知道了',
+          showCancel: !!gate.navigateTo,
+          success: (res) => {
+            if (res.confirm && gate.navigateTo) {
+              uni.navigateTo({ url: gate.navigateTo })
+            }
+            resolve()
+          },
+          fail: () => resolve(),
+        })
+      })
+      throw new Error(gate.message)
+    }
+
     aborted = false
     abortHandle = null
     activityLog.value = []
@@ -305,6 +339,16 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
 
+    if (getWritingMode(novel.currentNovel?.meta) === 'long') {
+      const bookMsg = buildBookOutlineInjectContent(
+        novel.currentNovel?.meta?.bookOutline || '',
+      )
+      if (bookMsg) {
+        systemParts.push({ role: 'system', content: bookMsg })
+        pushActivity('已注入全书大纲')
+      }
+    }
+
     const shouldInjectOutline =
       injectOutline.value && settings.settings.injectOutlineByDefault !== false
     if (shouldInjectOutline) {
@@ -324,7 +368,9 @@ export const useChatStore = defineStore('chat', () => {
     const loreEnabled =
       injectLore.value && settings.settings.injectLoreByKeyword !== false
     if (loreEnabled) {
-      const lore = buildLoreInjectMessage(novelId, userText)
+      const lore = buildLoreInjectMessage(novelId, userText, {
+        asOfOrder: writingTarget.order,
+      })
       if (lore) {
         systemParts.push(lore)
         pushActivity('已按关键词注入设定卡')
@@ -431,7 +477,12 @@ export const useChatStore = defineStore('chat', () => {
           throwIfAborted()
           const status = toolStatusLabel(call.function.name, call.function.arguments)
           pushActivity(status)
-          const out = executeNovelTool(novelId, call.function.name, call.function.arguments)
+          const out = executeNovelTool(
+            novelId,
+            call.function.name,
+            call.function.arguments,
+            { defaultAsOfOrder: writingTarget.order },
+          )
           apiMessages.push({
             role: 'tool',
             tool_call_id: call.id,

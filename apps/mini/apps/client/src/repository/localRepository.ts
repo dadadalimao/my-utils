@@ -4,12 +4,20 @@ import type {
   LoreCard,
   LoreCardKind,
   Novel,
+  NovelMeta,
   OutlineRange,
   PromptTemplate,
   SyncPayload,
   UserSettings,
+  WritingMode,
 } from '@/types'
-import { createId, emptyOutline, normalizeOutline } from '@/types'
+import {
+  createId,
+  emptyOutline,
+  normalizeLoreCard,
+  normalizeNovelMeta,
+  normalizeOutline,
+} from '@/types'
 import { storageGet, storageSet } from './storage'
 
 const KEYS = {
@@ -82,9 +90,12 @@ export const localRepository = {
   },
 
   listNovels(): Novel[] {
-    return storageGet<Novel[]>(KEYS.novels, []).sort(
-      (a, b) => b.updatedAt.localeCompare(a.updatedAt),
-    )
+    return storageGet<Novel[]>(KEYS.novels, [])
+      .map((n) => ({
+        ...n,
+        meta: n.meta ? normalizeNovelMeta(n.meta) : undefined,
+      }))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   },
 
   getNovel(id: string): Novel | undefined {
@@ -99,14 +110,27 @@ export const localRepository = {
     storageSet(KEYS.currentNovelId, id)
   },
 
-  createNovel(title: string): Novel {
+  /**
+   * @param options.writingMode 默认 light
+   * @param options.targetWords 长篇预计字数
+   */
+  createNovel(
+    title: string,
+    options?: { writingMode?: WritingMode; targetWords?: number },
+  ): Novel {
+    const writingMode = options?.writingMode === 'long' ? 'long' : 'light'
+    const meta: NovelMeta = normalizeNovelMeta({
+      writingMode,
+      ...(options?.targetWords != null ? { targetWords: options.targetWords } : {}),
+    })
     const novel: Novel = {
       id: createId('n_'),
       title,
+      meta,
       updatedAt: now(),
       chapterIds: [],
     }
-    const list = this.listNovels()
+    const list = storageGet<Novel[]>(KEYS.novels, [])
     list.unshift(novel)
     storageSet(KEYS.novels, list)
     this.setCurrentNovelId(novel.id)
@@ -114,10 +138,20 @@ export const localRepository = {
   },
 
   updateNovel(id: string, patch: Partial<Pick<Novel, 'title' | 'meta'>>) {
-    const list = this.listNovels()
+    const list = storageGet<Novel[]>(KEYS.novels, [])
     const idx = list.findIndex((n) => n.id === id)
     if (idx < 0) return
-    list[idx] = { ...list[idx], ...patch, updatedAt: now() }
+    const prev = list[idx]
+    const nextMeta =
+      patch.meta !== undefined
+        ? normalizeNovelMeta({ ...(prev.meta || {}), ...patch.meta })
+        : prev.meta
+    list[idx] = {
+      ...prev,
+      ...patch,
+      meta: nextMeta,
+      updatedAt: now(),
+    }
     storageSet(KEYS.novels, list)
   },
 
@@ -273,7 +307,13 @@ export const localRepository = {
   // —— 人物 / 道具设定卡 ——
 
   listAllLoreCards(): LoreCard[] {
-    return storageGet<LoreCard[]>(KEYS.loreCards, [])
+    return storageGet<Partial<LoreCard>[]>(KEYS.loreCards, [])
+      .filter((c) => c && c.id && c.novelId && c.name)
+      .map((c) =>
+        normalizeLoreCard(
+          c as Partial<LoreCard> & Pick<LoreCard, 'id' | 'novelId' | 'kind' | 'name'>,
+        ),
+      )
   },
 
   listLoreCards(novelId: string, kind?: LoreCardKind): LoreCard[] {
@@ -309,19 +349,33 @@ export const localRepository = {
   },
 
   saveLoreCard(
-    card: Omit<LoreCard, 'id' | 'updatedAt'> & { id?: string },
+    card: Omit<LoreCard, 'id' | 'updatedAt' | 'content' | 'core' | 'states'> & {
+      id?: string
+      content?: string
+      core?: string
+      states?: LoreCard['states']
+    },
   ): LoreCard {
     const all = this.listAllLoreCards()
     const id = card.id || createId('lore_')
-    const next: LoreCard = {
+    const existing = all.find((c) => c.id === id)
+    const coreInput =
+      card.core !== undefined
+        ? card.core
+        : card.content !== undefined
+          ? card.content
+          : existing?.core || existing?.content || ''
+    const next = normalizeLoreCard({
       id,
       novelId: card.novelId,
       kind: card.kind,
       name: card.name.trim(),
       keywords: (card.keywords || []).map((k) => k.trim()).filter(Boolean),
-      content: card.content,
+      content: coreInput,
+      core: coreInput,
+      states: card.states !== undefined ? card.states : existing?.states || [],
       updatedAt: now(),
-    }
+    })
     const idx = all.findIndex((c) => c.id === id)
     if (idx >= 0) all[idx] = next
     else all.push(next)
@@ -349,7 +403,13 @@ export const localRepository = {
   },
 
   importSnapshot(payload: SyncPayload) {
-    storageSet(KEYS.novels, payload.novels || [])
+    storageSet(
+      KEYS.novels,
+      (payload.novels || []).map((n) => ({
+        ...n,
+        meta: n.meta ? normalizeNovelMeta(n.meta) : undefined,
+      })),
+    )
     storageSet(
       KEYS.chapters,
       (payload.chapters || []).map((c) => ({
@@ -357,7 +417,16 @@ export const localRepository = {
         outline: normalizeOutline(c.outline),
       })),
     )
-    storageSet(KEYS.loreCards, payload.loreCards || [])
+    storageSet(
+      KEYS.loreCards,
+      (payload.loreCards || [])
+        .filter((c) => c && c.id && c.novelId && c.name)
+        .map((c) =>
+          normalizeLoreCard(
+            c as Partial<LoreCard> & Pick<LoreCard, 'id' | 'novelId' | 'kind' | 'name'>,
+          ),
+        ),
+    )
     if (payload.settings) {
       storageSet(KEYS.settings, { ...DEFAULT_SETTINGS, ...payload.settings })
     }

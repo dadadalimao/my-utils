@@ -1,0 +1,51 @@
+/**
+ * 墨纸暖灰 — SCSS 色板（供 uni.scss / 需预处理的样式）
+ * 运行时 CSS 变量以 theme.css 为准，两边色值须保持一致。
+ */
+
+$theme-bg: #f7f4ef;
+$theme-surface: #ffffff;
+$theme-surface-muted: #f0ebe3;
+$theme-surface-soft: #faf8f5;
+$theme-border: #e8e2d9;
+
+$theme-text: #1c1917;
+$theme-text-secondary: #57534e;
+$theme-text-muted: #78716c;
+$theme-text-faint: #a8a29e;
+
+$theme-primary: #1c1917;
+$theme-primary-contrast: #ffffff;
+$theme-accent: #b45309;
+$theme-accent-soft: #fef3c7;
+$theme-accent-muted: #f5e6d3;
+
+$theme-danger: #b91c1c;
+$theme-danger-soft: #fee2e2;
+
+$theme-warning: #d97706;
+$theme-warning-bg: #fffbeb;
+
+$theme-ai-prompt: #f5e6d3;
+$theme-ai-output: #fff7ed;
+$theme-chat-user: #ebe4d8;
+$theme-chat-assistant: #fffcf7;
+
+$theme-tag-create-bg: #fef3c7;
+$theme-tag-create-text: #b45309;
+$theme-tag-update-bg: #ffedd5;
+$theme-tag-update-text: #c2410c;
+
+$theme-mask: rgba(28, 25, 23, 0.45);
+$theme-fab-shadow: rgba(28, 25, 23, 0.28);
+
+/* 对齐 uni-app 内置变量 */
+$uni-color-primary: $theme-accent;
+$uni-color-success: #15803d;
+$uni-color-warning: $theme-warning;
+$uni-color-error: $theme-danger;
+$uni-text-color: $theme-text;
+$uni-text-color-grey: $theme-text-muted;
+$uni-bg-color: $theme-surface;
+$uni-bg-color-grey: $theme-bg;
+$uni-border-color: $theme-border;
