@@ -28,6 +28,7 @@ apps/mini/apps/**/node_modules/
 apps/mini/apps/**/dist/
 apps/mini/apps/**/.env
 apps/mini/apps/**/.env.local
+apps/mini/apps/**/.yarn/
 apps/mini/apps/server/prisma/*.db
 apps/mini/apps/server/prisma/*.db-journal
 apps/mini/apps/**/*.log
