@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { localRepository } from '@/repository/localRepository'
-import type { Chapter, Novel } from '@/types'
+import { normalizeOutline, type Chapter, type Novel } from '@/types'
 
 export const useNovelStore = defineStore('novel', () => {
   const novels = ref<Novel[]>([])
@@ -45,6 +45,18 @@ export const useNovelStore = defineStore('novel', () => {
     refresh()
   }
 
+  /**
+   * 更新小说 meta（如 bible 世界观设定），合并写入。
+   */
+  function updateNovelMeta(id: string, patch: NonNullable<Novel['meta']>) {
+    const n = novels.value.find((x) => x.id === id) || localRepository.getNovel(id)
+    if (!n) throw new Error('小说不存在')
+    localRepository.updateNovel(id, {
+      meta: { ...(n.meta || {}), ...patch },
+    })
+    refresh()
+  }
+
   function removeNovel(id: string) {
     localRepository.deleteNovel(id)
     refresh()
@@ -62,8 +74,11 @@ export const useNovelStore = defineStore('novel', () => {
     currentChapterId.value = id
   }
 
-  function saveChapterContent(id: string, content: string) {
-    localRepository.updateChapter(id, { content })
+  function saveChapterContent(id: string, content: string, title?: string) {
+    localRepository.updateChapter(id, {
+      content,
+      ...(title !== undefined ? { title } : {}),
+    })
     chapters.value = localRepository.listChapters(currentNovelId.value!)
   }
 
@@ -73,7 +88,11 @@ export const useNovelStore = defineStore('novel', () => {
     title?: string,
   ) {
     localRepository.updateChapter(id, {
-      outline: { ...outline, source: outline.source || 'manual', updatedAt: new Date().toISOString() },
+      outline: {
+        ...normalizeOutline(outline),
+        source: outline.source || 'manual',
+        updatedAt: new Date().toISOString(),
+      },
       ...(title ? { title } : {}),
     })
     chapters.value = localRepository.listChapters(currentNovelId.value!)
@@ -100,6 +119,7 @@ export const useNovelStore = defineStore('novel', () => {
     selectNovel,
     createNovel,
     renameNovel,
+    updateNovelMeta,
     removeNovel,
     createChapter,
     selectChapter,

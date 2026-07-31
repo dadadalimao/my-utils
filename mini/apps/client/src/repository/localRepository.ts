@@ -1,29 +1,43 @@
 import type {
   Chapter,
   ChapterOutline,
+  LoreCard,
+  LoreCardKind,
   Novel,
   OutlineRange,
+  PromptTemplate,
   SyncPayload,
   UserSettings,
 } from '@/types'
-import { createId, emptyOutline } from '@/types'
+import { createId, emptyOutline, normalizeOutline } from '@/types'
 import { storageGet, storageSet } from './storage'
 
 const KEYS = {
   novels: 'novels',
   chapters: 'chapters',
+  loreCards: 'loreCards',
   settings: 'settings',
   currentNovelId: 'currentNovelId',
+  /** 登录后从后端拉取的提示词缓存（登出后仍可读） */
+  promptTemplates: 'promptTemplates',
+  selectedTemplateId: 'selectedTemplateId',
 } as const
 
 const DEFAULT_SETTINGS: UserSettings = {
   deepseekApiKey: '',
   kimiApiKey: '',
   defaultProvider: 'deepseek',
-  defaultModel: 'deepseek-chat',
+  defaultModel: 'deepseek-v4-flash',
   autoMaintainOutline: true,
   injectOutlineByDefault: true,
+  injectLoreByKeyword: true,
   apiBaseUrl: 'http://localhost:3000',
+}
+
+/** DeepSeek 旧模型名 → V4（2026-07-24 起旧名不可用） */
+const LEGACY_DEEPSEEK_MODELS: Record<string, string> = {
+  'deepseek-chat': 'deepseek-v4-flash',
+  'deepseek-reasoner': 'deepseek-v4-flash',
 }
 
 function now() {
@@ -36,11 +50,35 @@ function now() {
  */
 export const localRepository = {
   getSettings(): UserSettings {
-    return { ...DEFAULT_SETTINGS, ...storageGet<Partial<UserSettings>>(KEYS.settings, {}) }
+    const settings = { ...DEFAULT_SETTINGS, ...storageGet<Partial<UserSettings>>(KEYS.settings, {}) }
+    const migrated = LEGACY_DEEPSEEK_MODELS[settings.defaultModel]
+    if (migrated) {
+      settings.defaultModel = migrated
+      storageSet(KEYS.settings, settings)
+    }
+    return settings
   },
 
   saveSettings(settings: UserSettings) {
     storageSet(KEYS.settings, settings)
+  },
+
+  /** 读取已缓存的云端提示词；从未拉取过则返回 null */
+  getCachedPromptTemplates(): PromptTemplate[] | null {
+    const list = storageGet<PromptTemplate[] | null>(KEYS.promptTemplates, null)
+    return list?.length ? list : null
+  },
+
+  saveCachedPromptTemplates(list: PromptTemplate[]) {
+    storageSet(KEYS.promptTemplates, list)
+  },
+
+  getSelectedTemplateId(): string {
+    return storageGet<string>(KEYS.selectedTemplateId, '')
+  },
+
+  saveSelectedTemplateId(id: string) {
+    storageSet(KEYS.selectedTemplateId, id)
   },
 
   listNovels(): Novel[] {
@@ -88,13 +126,20 @@ export const localRepository = {
     storageSet(KEYS.novels, list)
     const chapters = this.listAllChapters().filter((c) => c.novelId !== id)
     storageSet(KEYS.chapters, chapters)
+    storageSet(
+      KEYS.loreCards,
+      this.listAllLoreCards().filter((c) => c.novelId !== id),
+    )
     if (this.getCurrentNovelId() === id) {
       this.setCurrentNovelId(list[0]?.id ?? null)
     }
   },
 
   listAllChapters(): Chapter[] {
-    return storageGet<Chapter[]>(KEYS.chapters, [])
+    return storageGet<Chapter[]>(KEYS.chapters, []).map((c) => ({
+      ...c,
+      outline: normalizeOutline(c.outline),
+    }))
   },
 
   listChapters(novelId: string): Chapter[] {
@@ -140,7 +185,9 @@ export const localRepository = {
     const all = this.listAllChapters()
     const idx = all.findIndex((c) => c.id === id)
     if (idx < 0) return
-    all[idx] = { ...all[idx], ...patch, updatedAt: now() }
+    const next = { ...all[idx], ...patch, updatedAt: now() }
+    if (patch.outline) next.outline = normalizeOutline(patch.outline)
+    all[idx] = next
     storageSet(KEYS.chapters, all)
     this.updateNovel(all[idx].novelId, {})
   },
@@ -163,13 +210,21 @@ export const localRepository = {
 
   /**
    * 按范围提取大纲（仅 outline 字段）。
+   * continuity 类型请走 outlineInject.buildContinuityContextMessage，此处不处理。
    */
   getOutlines(
     novelId: string,
     range: OutlineRange,
   ): { order: number; title: string; outline: ChapterOutline }[] {
     let chapters = this.listChapters(novelId)
-    if (range.type === 'current' && range.currentChapterId) {
+    if (range.type === 'continuity') {
+      // 衔接模式由注入层组装，这里退化为「当前章之前全部」大纲
+      const cur = range.currentChapterId
+        ? chapters.find((c) => c.id === range.currentChapterId)
+        : undefined
+      const anchor = cur?.order ?? Number.MAX_SAFE_INTEGER
+      chapters = chapters.filter((c) => c.order < anchor)
+    } else if (range.type === 'current' && range.currentChapterId) {
       chapters = chapters.filter((c) => c.id === range.currentChapterId)
     } else if (range.type === 'range') {
       const from = range.fromOrder ?? 1
@@ -191,18 +246,94 @@ export const localRepository = {
     if (!items.length) return '（暂无大纲）'
     return items
       .map((item) => {
+        const o = normalizeOutline(item.outline)
         const lines = [`【第${item.order}章 ${item.title}】`]
-        if (item.outline.summary) lines.push(`摘要：${item.outline.summary}`)
-        if (!preferSummaryOnly && item.outline.beats?.length) {
-          lines.push('情节点：')
-          item.outline.beats.forEach((b, i) => lines.push(`  ${i + 1}. ${b}`))
+        if (o.summary) lines.push(`摘要：${o.summary}`)
+        if (!preferSummaryOnly && o.beats?.length) {
+          lines.push('本章事件：')
+          o.beats.forEach((b, i) => lines.push(`  ${i + 1}. ${b}`))
         }
-        if (!preferSummaryOnly && item.outline.notes) {
-          lines.push(`备注：${item.outline.notes}`)
+        if (!preferSummaryOnly && o.characterStates?.length) {
+          lines.push('人物状态：')
+          o.characterStates.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`))
+        }
+        // 未收束线对衔接很重要：摘要模式下也带上
+        if (o.hangingThreads?.length) {
+          lines.push('未收束线：')
+          o.hangingThreads.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`))
+        }
+        if (!preferSummaryOnly && o.notes) {
+          lines.push(`备注：${o.notes}`)
         }
         return lines.join('\n')
       })
       .join('\n\n')
+  },
+
+  // —— 人物 / 道具设定卡 ——
+
+  listAllLoreCards(): LoreCard[] {
+    return storageGet<LoreCard[]>(KEYS.loreCards, [])
+  },
+
+  listLoreCards(novelId: string, kind?: LoreCardKind): LoreCard[] {
+    return this.listAllLoreCards()
+      .filter((c) => c.novelId === novelId && (!kind || c.kind === kind))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  },
+
+  getLoreCard(id: string): LoreCard | undefined {
+    return this.listAllLoreCards().find((c) => c.id === id)
+  },
+
+  /**
+   * 按 id 或名称/关键词查找设定卡（同小说内）。
+   */
+  findLoreCard(
+    novelId: string,
+    query: { id?: string; name?: string },
+  ): LoreCard | undefined {
+    const all = this.listLoreCards(novelId)
+    if (query.id) {
+      const byId = all.find((c) => c.id === query.id)
+      if (byId) return byId
+    }
+    const name = query.name?.trim()
+    if (!name) return undefined
+    const lower = name.toLowerCase()
+    return (
+      all.find((c) => c.name.toLowerCase() === lower) ||
+      all.find((c) => c.keywords.some((k) => k.trim().toLowerCase() === lower)) ||
+      all.find((c) => c.name.toLowerCase().includes(lower))
+    )
+  },
+
+  saveLoreCard(
+    card: Omit<LoreCard, 'id' | 'updatedAt'> & { id?: string },
+  ): LoreCard {
+    const all = this.listAllLoreCards()
+    const id = card.id || createId('lore_')
+    const next: LoreCard = {
+      id,
+      novelId: card.novelId,
+      kind: card.kind,
+      name: card.name.trim(),
+      keywords: (card.keywords || []).map((k) => k.trim()).filter(Boolean),
+      content: card.content,
+      updatedAt: now(),
+    }
+    const idx = all.findIndex((c) => c.id === id)
+    if (idx >= 0) all[idx] = next
+    else all.push(next)
+    storageSet(KEYS.loreCards, all)
+    return next
+  },
+
+  deleteLoreCard(id: string) {
+    storageSet(
+      KEYS.loreCards,
+      this.listAllLoreCards().filter((c) => c.id !== id),
+    )
   },
 
   exportSnapshot(): SyncPayload {
@@ -210,6 +341,7 @@ export const localRepository = {
       version: 1,
       novels: this.listNovels(),
       chapters: this.listAllChapters(),
+      loreCards: this.listAllLoreCards(),
       settings: this.getSettings(),
       currentNovelId: this.getCurrentNovelId(),
       exportedAt: now(),
@@ -218,7 +350,14 @@ export const localRepository = {
 
   importSnapshot(payload: SyncPayload) {
     storageSet(KEYS.novels, payload.novels || [])
-    storageSet(KEYS.chapters, payload.chapters || [])
+    storageSet(
+      KEYS.chapters,
+      (payload.chapters || []).map((c) => ({
+        ...c,
+        outline: normalizeOutline(c.outline),
+      })),
+    )
+    storageSet(KEYS.loreCards, payload.loreCards || [])
     if (payload.settings) {
       storageSet(KEYS.settings, { ...DEFAULT_SETTINGS, ...payload.settings })
     }

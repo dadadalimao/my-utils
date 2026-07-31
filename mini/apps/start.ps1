@@ -1,4 +1,4 @@
-# 一键启动：后端 + 微信小程序（各开一个 Windows Terminal 窗口）
+﻿# 一键启动：后端 + 微信小程序（各开一个 Windows Terminal 窗口）
 # 用法：在 mini/apps 下执行 .\start.ps1  或双击 start.bat
 
 $ErrorActionPreference = 'Stop'

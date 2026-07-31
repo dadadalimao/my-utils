@@ -13,12 +13,11 @@
       v-for="item in novel.novels"
       :key="item.id"
       class="card"
-      @click="openNovel(item.id)"
+      @click="openChapters(item.id)"
     >
       <view class="title">{{ item.title }}</view>
       <view class="muted">更新 {{ formatTime(item.updatedAt) }}</view>
       <view class="row">
-        <text class="link" @click.stop="openChapters(item.id)">章节</text>
         <text class="link" @click.stop="onRename(item.id, item.title)">重命名</text>
         <text class="danger" @click.stop="onDelete(item.id)">删除</text>
       </view>
@@ -49,15 +48,10 @@ function onCreate() {
       if (res.confirm) {
         const title = (res.content || '').trim() || '未命名小说'
         novel.createNovel(title)
-        uni.navigateTo({ url: '/pages/workbench/index' })
+        uni.navigateTo({ url: '/pages/chapters/index' })
       }
     },
   })
-}
-
-function openNovel(id: string) {
-  novel.selectNovel(id)
-  uni.navigateTo({ url: '/pages/workbench/index' })
 }
 
 function openChapters(id: string) {

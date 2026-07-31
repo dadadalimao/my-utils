@@ -42,6 +42,10 @@
         <text>对话默认注入大纲</text>
         <switch :checked="injectOutlineByDefault" @change="onInjectDefault" color="#0f766e" />
       </view>
+      <view class="row-between">
+        <text>关键词注入设定卡</text>
+        <switch :checked="injectLoreByKeyword" @change="onInjectLore" color="#0f766e" />
+      </view>
 
       <view class="row">
         <view class="btn-primary" @click="save">保存设置</view>
@@ -82,6 +86,7 @@ const defaultProvider = ref<Provider>(s.defaultProvider)
 const defaultModel = ref(s.defaultModel)
 const autoMaintainOutline = ref(s.autoMaintainOutline)
 const injectOutlineByDefault = ref(s.injectOutlineByDefault)
+const injectLoreByKeyword = ref(s.injectLoreByKeyword !== false)
 const backendPingMsg = ref('')
 
 const providerNames = PROVIDERS.map((p) => p.name)
@@ -112,6 +117,10 @@ function onInjectDefault(e: { detail: { value: boolean } }) {
   injectOutlineByDefault.value = e.detail.value
 }
 
+function onInjectLore(e: { detail: { value: boolean } }) {
+  injectLoreByKeyword.value = e.detail.value
+}
+
 function save() {
   settingsStore.save({
     apiBaseUrl: apiBaseUrl.value.trim(),
@@ -121,6 +130,7 @@ function save() {
     defaultModel: defaultModel.value,
     autoMaintainOutline: autoMaintainOutline.value,
     injectOutlineByDefault: injectOutlineByDefault.value,
+    injectLoreByKeyword: injectLoreByKeyword.value,
   })
   uni.showToast({ title: '已保存', icon: 'success' })
 }
@@ -140,7 +150,7 @@ async function pingBackend() {
     uni.showLoading({ title: 'Ping 后端' })
     const res = await new Promise<UniApp.RequestSuccessCallbackResult>((resolve, reject) => {
       uni.request({
-        url: `${base}/prompt-templates`,
+        url: `${base}/health`,
         method: 'GET',
         timeout: 8000,
         success: resolve,
@@ -149,8 +159,7 @@ async function pingBackend() {
     })
     const ms = Date.now() - started
     if (res.statusCode >= 200 && res.statusCode < 300) {
-      const list = Array.isArray(res.data) ? res.data : []
-      backendPingMsg.value = `OK ${res.statusCode} · ${ms}ms · 模板 ${list.length} 条`
+      backendPingMsg.value = `OK ${res.statusCode} · ${ms}ms`
       uni.showToast({ title: '后端连通', icon: 'success' })
     } else {
       backendPingMsg.value = `HTTP ${res.statusCode} · ${ms}ms`
@@ -184,6 +193,14 @@ function goAuth() {
   uni.navigateTo({ url: '/pages/auth/index' })
 }
 
+/** hideLoading 放在 toast 之前，否则会把刚弹出的失败/成功提示冲掉 */
+function syncErrorToast(e: unknown, fallback: string) {
+  const raw = e instanceof Error ? e.message : ''
+  let title = raw.trim() || fallback
+  if (/no snapshot found/i.test(title)) title = '云端暂无数据，请先上传'
+  uni.showToast({ title, icon: 'none', duration: 2500 })
+}
+
 function onUpload() {
   if (!auth.isLoggedIn) {
     uni.showToast({ title: '请先登录', icon: 'none' })
@@ -195,13 +212,13 @@ function onUpload() {
     success: async (res) => {
       if (!res.confirm) return
       try {
-        uni.showLoading({ title: '上传中' })
+        uni.showLoading({ title: '上传中', mask: true })
         await uploadAll(auth.token)
+        uni.hideLoading()
         uni.showToast({ title: '上传成功', icon: 'success' })
       } catch (e) {
-        uni.showToast({ title: (e as Error).message, icon: 'none' })
-      } finally {
         uni.hideLoading()
+        syncErrorToast(e, '上传失败')
       }
     },
   })
@@ -218,7 +235,7 @@ function onImport() {
     success: async (res) => {
       if (!res.confirm) return
       try {
-        uni.showLoading({ title: '导入中' })
+        uni.showLoading({ title: '导入中', mask: true })
         await importAll(auth.token)
         settingsStore.reload()
         novel.refresh()
@@ -229,11 +246,14 @@ function onImport() {
         kimiApiKey.value = ns.kimiApiKey
         defaultProvider.value = ns.defaultProvider
         defaultModel.value = ns.defaultModel
+        autoMaintainOutline.value = ns.autoMaintainOutline
+        injectOutlineByDefault.value = ns.injectOutlineByDefault
+        injectLoreByKeyword.value = ns.injectLoreByKeyword !== false
+        uni.hideLoading()
         uni.showToast({ title: '导入成功', icon: 'success' })
       } catch (e) {
-        uni.showToast({ title: (e as Error).message, icon: 'none' })
-      } finally {
         uni.hideLoading()
+        syncErrorToast(e, '导入失败')
       }
     },
   })

@@ -16,8 +16,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useChatStore } from '@/stores/chat'
 
 const auth = useAuthStore()
+const chat = useChatStore()
 const tab = ref<'login' | 'register'>('login')
 const username = ref('')
 const password = ref('')
@@ -30,6 +32,8 @@ async function submit() {
     } else {
       await auth.register(username.value.trim(), password.value)
     }
+    // 登录后强制拉取提示词并缓存到本地
+    await chat.loadTemplates(true)
     uni.showToast({ title: '成功', icon: 'success' })
     setTimeout(() => uni.navigateBack(), 500)
   } catch (e) {

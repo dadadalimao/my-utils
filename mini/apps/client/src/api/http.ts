@@ -33,11 +33,22 @@ export async function apiDownloadSnapshot(token: string) {
   return request<{ payload: SyncPayload; updatedAt: string }>('GET', '/sync', undefined, token)
 }
 
-export async function apiFetchTemplates(mode?: string) {
+export async function apiFetchTemplates(token: string, mode?: string) {
   const q = mode ? `?mode=${mode}` : ''
   return request<
     { id: string; mode: string; name: string; content: string; updatedAt: string }[]
-  >('GET', `/prompt-templates${q}`)
+  >('GET', `/prompt-templates${q}`, undefined, token)
+}
+
+/** 从 Nest / 网络错误体中抽出可读文案，避免 toast 直接塞整段 JSON */
+function extractErrorMessage(data: unknown, statusCode: number): string {
+  if (data && typeof data === 'object' && 'message' in data) {
+    const msg = (data as { message: unknown }).message
+    if (typeof msg === 'string' && msg.trim()) return msg
+    if (Array.isArray(msg) && msg.length) return msg.map(String).join('; ')
+  }
+  if (typeof data === 'string' && data.trim()) return data
+  return `请求失败 (${statusCode})`
 }
 
 function request<T>(
@@ -56,11 +67,10 @@ function request<T>(
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res.data as T)
         } else {
-          const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
-          reject(new Error(body || `HTTP ${res.statusCode}`))
+          reject(new Error(extractErrorMessage(res.data, res.statusCode)))
         }
       },
-      fail: (err) => reject(new Error(err.errMsg || 'network error')),
+      fail: (err) => reject(new Error(err.errMsg || '网络错误')),
     })
   })
 }

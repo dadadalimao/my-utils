@@ -25,6 +25,30 @@
       }
     },
     {
+      "path": "pages/lore/index",
+      "style": {
+        "navigationBarTitleText": "设定卡"
+      }
+    },
+    {
+      "path": "pages/bible/index",
+      "style": {
+        "navigationBarTitleText": "本书设定"
+      }
+    },
+    {
+      "path": "pages/lore/edit",
+      "style": {
+        "navigationBarTitleText": "编辑设定卡"
+      }
+    },
+    {
+      "path": "pages/lore/review",
+      "style": {
+        "navigationBarTitleText": "确认设定卡"
+      }
+    },
+    {
       "path": "pages/settings/index",
       "style": {
         "navigationBarTitleText": "设置"
