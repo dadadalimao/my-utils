@@ -6,6 +6,7 @@
         <text class="link" @click="goBookOutline">全书大纲</text>
         <text class="link" @click="goBible">本书设定</text>
         <text class="link" @click="goLore">设定卡</text>
+        <text class="link" @click="goLibrary">资料库</text>
       </view>
     </view>
 
@@ -106,6 +107,10 @@ function openDetail(id: string) {
 
 function goLore() {
   uni.navigateTo({ url: '/pages/lore/index' })
+}
+
+function goLibrary() {
+  uni.navigateTo({ url: '/pages/library/index' })
 }
 
 function goBible() {

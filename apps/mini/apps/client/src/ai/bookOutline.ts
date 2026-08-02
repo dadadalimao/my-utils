@@ -1,4 +1,4 @@
-import { chatCompletion } from './client'
+import { chatWithNovelTools, toolsSystemHint } from './tools'
 import { localRepository } from '@/repository/localRepository'
 import type { Provider } from '@/types'
 
@@ -18,9 +18,10 @@ export function buildBookOutlineInjectContent(outline: string): string | null {
 }
 
 /**
- * AI 辅助撰写/补充全书大纲（单轮）。
+ * AI 辅助撰写/补充全书大纲（可调用工具查阅本书设定、章纲等）。
  */
 export async function assistBookOutline(options: {
+  novelId: string
   current: string
   userPrompt: string
   provider: Provider
@@ -30,10 +31,12 @@ export async function assistBookOutline(options: {
   const prompt = options.userPrompt.trim()
   if (!prompt) throw new Error('请填写辅助要求')
 
-  const out = await chatCompletion({
+  const text = await chatWithNovelTools({
+    novelId: options.novelId,
     provider: options.provider,
     apiKey: options.apiKey,
     model: options.model,
+    finalNudge: '请基于已有信息直接输出完整全书大纲正文，勿再调用工具，不要解释。',
     messages: [
       {
         role: 'system',
@@ -41,6 +44,8 @@ export async function assistBookOutline(options: {
           '你是小说全书大纲策划助手，协助完善「全书剧情大纲」。',
           '输出完整大纲正文，可用分幕/分卷/阶段表格或条目列出核心事件与主题。',
           '在用户要求下补充、改写或扩写；保留仍有效的旧规划，勿无故删改。',
+          '需要对照本书设定、已有章纲或设定卡时请调用工具，勿臆造。',
+          toolsSystemHint(),
           '只输出大纲正文，不要解释。',
         ].join('\n'),
       },
@@ -56,13 +61,12 @@ export async function assistBookOutline(options: {
       },
     ],
   })
-  const text = out.trim()
   if (!text) throw new Error('AI 未返回大纲内容')
   return text
 }
 
 /**
- * 根据已有章节摘要生成全书大纲初稿（迁移用）。
+ * 根据已有章节摘要生成全书大纲初稿（迁移用；可查本书设定等）。
  */
 export async function draftBookOutlineFromChapters(options: {
   novelId: string
@@ -77,10 +81,12 @@ export async function draftBookOutlineFromChapters(options: {
   })
   const catalog = lines.length ? lines.join('\n') : '（尚无章节）'
 
-  const out = await chatCompletion({
+  const text = await chatWithNovelTools({
+    novelId: options.novelId,
     provider: options.provider,
     apiKey: options.apiKey,
     model: options.model,
+    finalNudge: '请基于已有信息直接输出全书大纲初稿正文，勿再调用工具，不要解释。',
     messages: [
       {
         role: 'system',
@@ -88,6 +94,8 @@ export async function draftBookOutlineFromChapters(options: {
           '你是小说全书大纲策划助手。根据已有章节摘要，整理一份可继续扩写的全书剧情大纲。',
           '结构建议：核心设定总览、分幕/阶段主线、关键角色定位、未决问题。',
           '可合理推断后续走向并标注为「规划」，勿编造与已有摘要明显冲突的已发生情节。',
+          '需要对照本书设定、完整章纲或设定卡时请调用工具。',
+          toolsSystemHint(),
           '只输出大纲正文，不要解释。',
         ].join('\n'),
       },
@@ -97,7 +105,6 @@ export async function draftBookOutlineFromChapters(options: {
       },
     ],
   })
-  const text = out.trim()
   if (!text) throw new Error('AI 未返回大纲初稿')
   return text
 }

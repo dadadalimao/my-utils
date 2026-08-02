@@ -1,6 +1,7 @@
 import type {
   Chapter,
   ChapterOutline,
+  LibraryEntry,
   LoreCard,
   LoreCardKind,
   Novel,
@@ -14,19 +15,24 @@ import type {
 import {
   createId,
   emptyOutline,
+  normalizeLibraryEntry,
   normalizeLoreCard,
   normalizeNovelMeta,
   normalizeOutline,
 } from '@/types'
-import { storageGet, storageSet } from './storage'
+import { storageGet, storageRemove, storageSet } from './storage'
 
 const KEYS = {
   novels: 'novels',
-  chapters: 'chapters',
-  loreCards: 'loreCards',
+  chapterIndex: 'chapterIndex',
+  loreIndex: 'loreIndex',
+  libraryIndex: 'libraryIndex',
+  /** @deprecated 仅迁移识别，运行时不再写入 */
+  chaptersLegacy: 'chapters',
+  loreLegacy: 'loreCards',
+  libraryLegacy: 'libraryEntries',
   settings: 'settings',
   currentNovelId: 'currentNovelId',
-  /** 登录后从后端拉取的提示词缓存（登出后仍可读） */
   promptTemplates: 'promptTemplates',
   selectedTemplateId: 'selectedTemplateId',
 } as const
@@ -39,6 +45,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   autoMaintainOutline: true,
   injectOutlineByDefault: true,
   injectLoreByKeyword: true,
+  injectLibraryByKeyword: true,
+  enableDeepseekWebSearch: false,
   apiBaseUrl: 'http://localhost:3000',
 }
 
@@ -52,9 +60,30 @@ function now() {
   return new Date().toISOString()
 }
 
+function chapterKey(id: string) {
+  return `chapter:${id}`
+}
+
+function loreKey(id: string) {
+  return `lore:${id}`
+}
+
+function libraryKey(id: string) {
+  return `library:${id}`
+}
+
+function readIdIndex(indexKey: string): string[] {
+  const ids = storageGet<string[]>(indexKey, [])
+  return Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id) : []
+}
+
+function writeIdIndex(indexKey: string, ids: string[]) {
+  storageSet(indexKey, ids)
+}
+
 /**
- * 本地小说/章节仓储（uni.setStorage）。
- * getOutlines 仅序列化 outline，不扫描 content。
+ * 本地小说/章节仓储（内存 + 平台大容量后端）。
+ * chapters / lore / library 按实体拆键，避免整包读写触顶。
  */
 export const localRepository = {
   getSettings(): UserSettings {
@@ -158,22 +187,63 @@ export const localRepository = {
   deleteNovel(id: string) {
     const list = this.listNovels().filter((n) => n.id !== id)
     storageSet(KEYS.novels, list)
-    const chapters = this.listAllChapters().filter((c) => c.novelId !== id)
-    storageSet(KEYS.chapters, chapters)
-    storageSet(
-      KEYS.loreCards,
-      this.listAllLoreCards().filter((c) => c.novelId !== id),
-    )
+
+    const chapterIds = readIdIndex(KEYS.chapterIndex)
+    const keepChapterIds: string[] = []
+    for (const cid of chapterIds) {
+      const ch = storageGet<Chapter | null>(chapterKey(cid), null)
+      if (ch?.novelId === id) {
+        storageRemove(chapterKey(cid))
+      } else if (ch) {
+        keepChapterIds.push(cid)
+      } else {
+        storageRemove(chapterKey(cid))
+      }
+    }
+    writeIdIndex(KEYS.chapterIndex, keepChapterIds)
+
+    const loreIds = readIdIndex(KEYS.loreIndex)
+    const keepLore: string[] = []
+    for (const lid of loreIds) {
+      const card = storageGet<LoreCard | null>(loreKey(lid), null)
+      if (card?.novelId === id) {
+        storageRemove(loreKey(lid))
+      } else if (card) {
+        keepLore.push(lid)
+      } else {
+        storageRemove(loreKey(lid))
+      }
+    }
+    writeIdIndex(KEYS.loreIndex, keepLore)
+
+    const libIds = readIdIndex(KEYS.libraryIndex)
+    const keepLib: string[] = []
+    for (const eid of libIds) {
+      const entry = storageGet<LibraryEntry | null>(libraryKey(eid), null)
+      if (entry?.novelId === id) {
+        storageRemove(libraryKey(eid))
+      } else if (entry) {
+        keepLib.push(eid)
+      } else {
+        storageRemove(libraryKey(eid))
+      }
+    }
+    writeIdIndex(KEYS.libraryIndex, keepLib)
+
     if (this.getCurrentNovelId() === id) {
       this.setCurrentNovelId(list[0]?.id ?? null)
     }
   },
 
   listAllChapters(): Chapter[] {
-    return storageGet<Chapter[]>(KEYS.chapters, []).map((c) => ({
-      ...c,
-      outline: normalizeOutline(c.outline),
-    }))
+    const ids = readIdIndex(KEYS.chapterIndex)
+    const list: Chapter[] = []
+    for (const id of ids) {
+      const c = storageGet<Chapter | null>(chapterKey(id), null)
+      if (!c?.id) continue
+      list.push({ ...c, outline: normalizeOutline(c.outline) })
+    }
+    return list
   },
 
   listChapters(novelId: string): Chapter[] {
@@ -183,7 +253,9 @@ export const localRepository = {
   },
 
   getChapter(id: string): Chapter | undefined {
-    return this.listAllChapters().find((c) => c.id === id)
+    const c = storageGet<Chapter | null>(chapterKey(id), null)
+    if (!c?.id) return undefined
+    return { ...c, outline: normalizeOutline(c.outline) }
   },
 
   createChapter(novelId: string, title: string): Chapter {
@@ -197,9 +269,12 @@ export const localRepository = {
       outline: emptyOutline(),
       updatedAt: now(),
     }
-    const all = this.listAllChapters()
-    all.push(chapter)
-    storageSet(KEYS.chapters, all)
+    storageSet(chapterKey(chapter.id), chapter)
+    const ids = readIdIndex(KEYS.chapterIndex)
+    if (!ids.includes(chapter.id)) {
+      ids.push(chapter.id)
+      writeIdIndex(KEYS.chapterIndex, ids)
+    }
     const novel = this.getNovel(novelId)
     if (novel) {
       this.updateNovel(novelId, {})
@@ -216,22 +291,21 @@ export const localRepository = {
     id: string,
     patch: Partial<Pick<Chapter, 'title' | 'content' | 'outline' | 'order'>>,
   ) {
-    const all = this.listAllChapters()
-    const idx = all.findIndex((c) => c.id === id)
-    if (idx < 0) return
-    const next = { ...all[idx], ...patch, updatedAt: now() }
+    const prev = this.getChapter(id)
+    if (!prev) return
+    const next = { ...prev, ...patch, updatedAt: now() }
     if (patch.outline) next.outline = normalizeOutline(patch.outline)
-    all[idx] = next
-    storageSet(KEYS.chapters, all)
-    this.updateNovel(all[idx].novelId, {})
+    storageSet(chapterKey(id), next)
+    this.updateNovel(next.novelId, {})
   },
 
   deleteChapter(id: string) {
     const ch = this.getChapter(id)
     if (!ch) return
-    storageSet(
-      KEYS.chapters,
-      this.listAllChapters().filter((c) => c.id !== id),
+    storageRemove(chapterKey(id))
+    writeIdIndex(
+      KEYS.chapterIndex,
+      readIdIndex(KEYS.chapterIndex).filter((cid) => cid !== id),
     )
     const list = this.listNovels()
     const n = list.find((x) => x.id === ch.novelId)
@@ -252,7 +326,6 @@ export const localRepository = {
   ): { order: number; title: string; outline: ChapterOutline }[] {
     let chapters = this.listChapters(novelId)
     if (range.type === 'continuity') {
-      // 衔接模式由注入层组装，这里退化为「当前章之前全部」大纲
       const cur = range.currentChapterId
         ? chapters.find((c) => c.id === range.currentChapterId)
         : undefined
@@ -291,7 +364,6 @@ export const localRepository = {
           lines.push('人物状态：')
           o.characterStates.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`))
         }
-        // 未收束线对衔接很重要：摘要模式下也带上
         if (o.hangingThreads?.length) {
           lines.push('未收束线：')
           o.hangingThreads.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`))
@@ -307,13 +379,18 @@ export const localRepository = {
   // —— 人物 / 道具设定卡 ——
 
   listAllLoreCards(): LoreCard[] {
-    return storageGet<Partial<LoreCard>[]>(KEYS.loreCards, [])
-      .filter((c) => c && c.id && c.novelId && c.name)
-      .map((c) =>
+    const ids = readIdIndex(KEYS.loreIndex)
+    const list: LoreCard[] = []
+    for (const id of ids) {
+      const raw = storageGet<Partial<LoreCard> | null>(loreKey(id), null)
+      if (!raw?.id || !raw.novelId || !raw.name) continue
+      list.push(
         normalizeLoreCard(
-          c as Partial<LoreCard> & Pick<LoreCard, 'id' | 'novelId' | 'kind' | 'name'>,
+          raw as Partial<LoreCard> & Pick<LoreCard, 'id' | 'novelId' | 'kind' | 'name'>,
         ),
       )
+    }
+    return list
   },
 
   listLoreCards(novelId: string, kind?: LoreCardKind): LoreCard[] {
@@ -323,7 +400,11 @@ export const localRepository = {
   },
 
   getLoreCard(id: string): LoreCard | undefined {
-    return this.listAllLoreCards().find((c) => c.id === id)
+    const raw = storageGet<Partial<LoreCard> | null>(loreKey(id), null)
+    if (!raw?.id || !raw.novelId || !raw.name) return undefined
+    return normalizeLoreCard(
+      raw as Partial<LoreCard> & Pick<LoreCard, 'id' | 'novelId' | 'kind' | 'name'>,
+    )
   },
 
   /**
@@ -356,9 +437,8 @@ export const localRepository = {
       states?: LoreCard['states']
     },
   ): LoreCard {
-    const all = this.listAllLoreCards()
     const id = card.id || createId('lore_')
-    const existing = all.find((c) => c.id === id)
+    const existing = this.getLoreCard(id)
     const coreInput =
       card.core !== undefined
         ? card.core
@@ -376,17 +456,103 @@ export const localRepository = {
       states: card.states !== undefined ? card.states : existing?.states || [],
       updatedAt: now(),
     })
-    const idx = all.findIndex((c) => c.id === id)
-    if (idx >= 0) all[idx] = next
-    else all.push(next)
-    storageSet(KEYS.loreCards, all)
+    storageSet(loreKey(id), next)
+    const ids = readIdIndex(KEYS.loreIndex)
+    if (!ids.includes(id)) {
+      ids.push(id)
+      writeIdIndex(KEYS.loreIndex, ids)
+    }
     return next
   },
 
   deleteLoreCard(id: string) {
-    storageSet(
-      KEYS.loreCards,
-      this.listAllLoreCards().filter((c) => c.id !== id),
+    storageRemove(loreKey(id))
+    writeIdIndex(
+      KEYS.loreIndex,
+      readIdIndex(KEYS.loreIndex).filter((x) => x !== id),
+    )
+  },
+
+  // —— 资料库（同人/原作参考资料）——
+
+  listAllLibraryEntries(): LibraryEntry[] {
+    const ids = readIdIndex(KEYS.libraryIndex)
+    const list: LibraryEntry[] = []
+    for (const id of ids) {
+      const raw = storageGet<Partial<LibraryEntry> | null>(libraryKey(id), null)
+      if (!raw?.id || !raw.novelId || !raw.title) continue
+      list.push(
+        normalizeLibraryEntry(
+          raw as Partial<LibraryEntry> & Pick<LibraryEntry, 'id' | 'novelId' | 'title'>,
+        ),
+      )
+    }
+    return list
+  },
+
+  listLibraryEntries(novelId: string): LibraryEntry[] {
+    return this.listAllLibraryEntries()
+      .filter((e) => e.novelId === novelId)
+      .sort((a, b) => a.title.localeCompare(b.title, 'zh'))
+  },
+
+  getLibraryEntry(id: string): LibraryEntry | undefined {
+    const raw = storageGet<Partial<LibraryEntry> | null>(libraryKey(id), null)
+    if (!raw?.id || !raw.novelId || !raw.title) return undefined
+    return normalizeLibraryEntry(
+      raw as Partial<LibraryEntry> & Pick<LibraryEntry, 'id' | 'novelId' | 'title'>,
+    )
+  },
+
+  /**
+   * 按 id 或标题/关键词查找资料库条目（同小说内）。
+   */
+  findLibraryEntry(
+    novelId: string,
+    query: { id?: string; name?: string },
+  ): LibraryEntry | undefined {
+    const all = this.listLibraryEntries(novelId)
+    if (query.id) {
+      const byId = all.find((e) => e.id === query.id)
+      if (byId) return byId
+    }
+    const name = query.name?.trim()
+    if (!name) return undefined
+    const lower = name.toLowerCase()
+    return (
+      all.find((e) => e.title.toLowerCase() === lower) ||
+      all.find((e) => e.keywords.some((k) => k.trim().toLowerCase() === lower)) ||
+      all.find((e) => e.title.toLowerCase().includes(lower))
+    )
+  },
+
+  saveLibraryEntry(
+    entry: Omit<LibraryEntry, 'id' | 'updatedAt'> & { id?: string },
+  ): LibraryEntry {
+    const id = entry.id || createId('lib_')
+    const next = normalizeLibraryEntry({
+      id,
+      novelId: entry.novelId,
+      title: entry.title.trim(),
+      content: entry.content || '',
+      sourceUrl: entry.sourceUrl,
+      keywords: (entry.keywords || []).map((k) => k.trim()).filter(Boolean),
+      updatedAt: now(),
+    })
+    storageSet(libraryKey(id), next)
+    const ids = readIdIndex(KEYS.libraryIndex)
+    if (!ids.includes(id)) {
+      ids.push(id)
+      writeIdIndex(KEYS.libraryIndex, ids)
+    }
+    return next
+  },
+
+  deleteLibraryEntry(id: string) {
+    storageRemove(libraryKey(id))
+    writeIdIndex(
+      KEYS.libraryIndex,
+      readIdIndex(KEYS.libraryIndex).filter((x) => x !== id),
     )
   },
 
@@ -396,6 +562,7 @@ export const localRepository = {
       novels: this.listNovels(),
       chapters: this.listAllChapters(),
       loreCards: this.listAllLoreCards(),
+      libraryEntries: this.listAllLibraryEntries(),
       settings: this.getSettings(),
       currentNovelId: this.getCurrentNovelId(),
       exportedAt: now(),
@@ -410,23 +577,55 @@ export const localRepository = {
         meta: n.meta ? normalizeNovelMeta(n.meta) : undefined,
       })),
     )
-    storageSet(
-      KEYS.chapters,
-      (payload.chapters || []).map((c) => ({
-        ...c,
-        outline: normalizeOutline(c.outline),
-      })),
-    )
-    storageSet(
-      KEYS.loreCards,
-      (payload.loreCards || [])
-        .filter((c) => c && c.id && c.novelId && c.name)
-        .map((c) =>
-          normalizeLoreCard(
-            c as Partial<LoreCard> & Pick<LoreCard, 'id' | 'novelId' | 'kind' | 'name'>,
-          ),
+
+    // 清空旧实体再写入，避免残留
+    for (const id of readIdIndex(KEYS.chapterIndex)) storageRemove(chapterKey(id))
+    for (const id of readIdIndex(KEYS.loreIndex)) storageRemove(loreKey(id))
+    for (const id of readIdIndex(KEYS.libraryIndex)) storageRemove(libraryKey(id))
+
+    const chapters = (payload.chapters || []).map((c) => ({
+      ...c,
+      outline: normalizeOutline(c.outline),
+    }))
+    const chapterIds: string[] = []
+    for (const c of chapters) {
+      if (!c?.id) continue
+      storageSet(chapterKey(c.id), c)
+      chapterIds.push(c.id)
+    }
+    writeIdIndex(KEYS.chapterIndex, chapterIds)
+    storageRemove(KEYS.chaptersLegacy)
+
+    const loreCards = (payload.loreCards || [])
+      .filter((c) => c && c.id && c.novelId && c.name)
+      .map((c) =>
+        normalizeLoreCard(
+          c as Partial<LoreCard> & Pick<LoreCard, 'id' | 'novelId' | 'kind' | 'name'>,
         ),
-    )
+      )
+    const loreIds: string[] = []
+    for (const c of loreCards) {
+      storageSet(loreKey(c.id), c)
+      loreIds.push(c.id)
+    }
+    writeIdIndex(KEYS.loreIndex, loreIds)
+    storageRemove(KEYS.loreLegacy)
+
+    const libraryEntries = (payload.libraryEntries || [])
+      .filter((e) => e && e.id && e.novelId && e.title)
+      .map((e) =>
+        normalizeLibraryEntry(
+          e as Partial<LibraryEntry> & Pick<LibraryEntry, 'id' | 'novelId' | 'title'>,
+        ),
+      )
+    const libIds: string[] = []
+    for (const e of libraryEntries) {
+      storageSet(libraryKey(e.id), e)
+      libIds.push(e.id)
+    }
+    writeIdIndex(KEYS.libraryIndex, libIds)
+    storageRemove(KEYS.libraryLegacy)
+
     if (payload.settings) {
       storageSet(KEYS.settings, { ...DEFAULT_SETTINGS, ...payload.settings })
     }

@@ -47,11 +47,50 @@ function Start-WtCmd {
 
 <#
 .SYNOPSIS
-  启动 NestJS 后端（独立 wt 窗口）。
+  从 server/.env 读取 PORT，缺省 3000。
+#>
+function Get-MiniServerPort {
+    $envFile = Join-Path $ServerDir '.env'
+    $port = 3000
+    if (Test-Path $envFile) {
+        foreach ($line in Get-Content -LiteralPath $envFile -ErrorAction SilentlyContinue) {
+            if ($line -match '^\s*PORT\s*=\s*(\d+)\s*$') {
+                $port = [int]$Matches[1]
+                break
+            }
+        }
+    }
+    return $port
+}
+
+<#
+.SYNOPSIS
+  探测后端是否已在监听（GET /health）。
+#>
+function Test-MiniServerRunning {
+    param([Parameter(Mandatory = $true)][int]$Port)
+    $uri = "http://127.0.0.1:$Port/health"
+    try {
+        $resp = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 2
+        return ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300)
+    }
+    catch {
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+  启动 NestJS 后端（独立 wt 窗口）；若已在运行则跳过。
 #>
 function Start-MiniServer {
+    $port = Get-MiniServerPort
+    if (Test-MiniServerRunning -Port $port) {
+        Write-Host "后端已在运行 (http://localhost:$port/health)，跳过启动" -ForegroundColor Yellow
+        return
+    }
     Start-WtCmd -Title 'novel-ai-server' -WorkDir $ServerDir -CmdLine 'yarn start:dev'
-    Write-Host '已打开: novel-ai-server -> yarn start:dev' -ForegroundColor Green
+    Write-Host "已打开: novel-ai-server -> yarn start:dev (http://localhost:$port)" -ForegroundColor Green
 }
 
 <#
@@ -75,12 +114,19 @@ function Start-ClientMpWeixin {
 }
 
 function Show-ClientMenu {
+    $port = Get-MiniServerPort
+    $serverHint = if (Test-MiniServerRunning -Port $port) {
+        "后端已运行 :$port（将跳过）"
+    }
+    else {
+        "将按需启动后端 :$port"
+    }
     Write-Host ''
     Write-Host '========== Mini 启动 ==========' -ForegroundColor Cyan
-    Write-Host '  将启动后端，并选择客户端：'
+    Write-Host "  $serverHint"
     Write-Host '  1) H5 / Web          yarn dev:h5'
     Write-Host '  2) 微信小程序        yarn dev:mp-weixin'
-    Write-Host '  3) 仅后端            不启动客户端'
+    Write-Host '  3) 仅后端            未运行则启动'
     Write-Host '  0) 取消'
     Write-Host '==============================='
 }

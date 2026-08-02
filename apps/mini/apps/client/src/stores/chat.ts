@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { chatAnthropicStream } from '@/ai/anthropicDeepseek'
 import {
   chatCompletionStream,
   chatCompletionWithTools,
@@ -7,6 +8,7 @@ import {
 } from '@/ai/client'
 import { buildBookOutlineInjectContent } from '@/ai/bookOutline'
 import { buildBibleInjectContent } from '@/ai/novelBible'
+import { buildLibraryInjectMessage } from '@/ai/libraryInject'
 import { buildLoreInjectMessage } from '@/ai/loreInject'
 import {
   buildOutlineContextMessage,
@@ -19,7 +21,14 @@ import {
   generateChapterTitleFromContent,
   isPlaceholderChapterTitle,
 } from '@/ai/chapterTitle'
-import { executeNovelTool, NOVEL_TOOLS, toolStatusLabel, toolsSystemHint } from '@/ai/tools'
+import {
+  executeNovelTool,
+  MAX_NOVEL_TOOL_ROUNDS,
+  NOVEL_TOOLS,
+  runDeepseekAnthropicToolRounds,
+  toolStatusLabel,
+  toolsSystemHint,
+} from '@/ai/tools'
 import { REVISE_SYSTEM_PROMPT, wrapReviseUserPrompt } from '@/constants/revise'
 import { builtinByMode, BUILTIN_TEMPLATES } from '@/constants/templates'
 import { apiFetchTemplates } from '@/api/http'
@@ -37,7 +46,7 @@ import { useAuthStore } from './auth'
 import { useNovelStore } from './novel'
 import { useSettingsStore } from './settings'
 
-const MAX_TOOL_ROUNDS = 10
+const MAX_TOOL_ROUNDS = MAX_NOVEL_TOOL_ROUNDS
 
 function resolveInitialTemplates(): PromptTemplate[] {
   return localRepository.getCachedPromptTemplates() || [...BUILTIN_TEMPLATES]
@@ -70,6 +79,12 @@ export const useChatStore = defineStore('chat', () => {
   const outputStarted = ref(false)
   const injectOutline = ref(true)
   const injectLore = ref(storageGet<boolean>('injectLoreByKeyword', true))
+  const injectLibrary = ref(storageGet<boolean>('injectLibraryByKeyword', true))
+  /** 会话级 DeepSeek 联网；默认跟随设置 */
+  const webSearch = ref(
+    storageGet<boolean | null>('webSearchSession', null) ??
+      localRepository.getSettings().enableDeepseekWebSearch === true,
+  )
   const outlineRange = ref<OutlineRange>({ type: 'continuity' })
   const templates = ref<PromptTemplate[]>(resolveInitialTemplates())
   const selectedTemplateId = ref(resolveInitialSelectedId(templates.value))
@@ -149,6 +164,16 @@ export const useChatStore = defineStore('chat', () => {
   function setInjectLore(on: boolean) {
     injectLore.value = on
     storageSet('injectLoreByKeyword', on)
+  }
+
+  function setInjectLibrary(on: boolean) {
+    injectLibrary.value = on
+    storageSet('injectLibraryByKeyword', on)
+  }
+
+  function setWebSearch(on: boolean) {
+    webSearch.value = on
+    storageSet('webSearchSession', on)
   }
 
   function bindChapter(chapterId: string | null) {
@@ -325,10 +350,14 @@ export const useChatStore = defineStore('chat', () => {
         draftSource: useRevise ? draft.source : undefined,
       }),
     })
+    const useDeepseekWeb =
+      provider === 'deepseek' && webSearch.value === true
+
     systemParts.push({
       role: 'system',
-      content: toolsSystemHint(writingTarget.label),
+      content: toolsSystemHint(writingTarget.label, { webSearch: useDeepseekWeb }),
     })
+    if (useDeepseekWeb) pushActivity('已开启 DeepSeek 联网搜索')
 
     const bibleText = novel.currentNovel?.meta?.bible?.trim()
     if (bibleText) {
@@ -376,6 +405,18 @@ export const useChatStore = defineStore('chat', () => {
         pushActivity('已按关键词注入设定卡')
       } else {
         pushActivity('设定卡：未命中关键词')
+      }
+    }
+
+    const libraryEnabled =
+      injectLibrary.value && settings.settings.injectLibraryByKeyword !== false
+    if (libraryEnabled) {
+      const lib = buildLibraryInjectMessage(novelId, userText)
+      if (lib) {
+        systemParts.push(lib)
+        pushActivity('已按关键词注入资料库')
+      } else {
+        pushActivity('资料库：未命中关键词')
       }
     }
 
@@ -427,6 +468,67 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const apiMessages: ChatCompletionMessage[] = [...systemParts, ...history]
       let toolsOk = true
+      const finalNudge =
+        '请基于已有信息继续，直接输出最终正文或回答，勿再调用工具。'
+
+      // DeepSeek 联网：Anthropic 端点 + web_search；失败降级 OpenAI tools
+      if (useDeepseekWeb) {
+        try {
+          pushActivity('使用 DeepSeek 联网通道…')
+          const anth = await runDeepseekAnthropicToolRounds({
+            novelId,
+            apiKey,
+            model,
+            messages: apiMessages,
+            maxRounds: MAX_TOOL_ROUNDS,
+            defaultAsOfOrder: writingTarget.order,
+            onActivity: pushActivity,
+            onThinking: appendThinking,
+            onAbortHandle: bindAbortHandle,
+          })
+          throwIfAborted()
+          pushActivity('流式生成正文…')
+          setAssistantText('')
+          try {
+            const reply = await chatAnthropicStream({
+              apiKey,
+              model,
+              system: anth.system,
+              messages: [
+                ...anth.messages,
+                { role: 'user', content: finalNudge },
+              ],
+              onAbortHandle: bindAbortHandle,
+              onThinking: (delta) => appendThinking(delta),
+              onDelta: (_delta, fullText) => {
+                if (fullText) markOutputStarted()
+                setAssistantText(fullText)
+                lastReply.value = fullText
+              },
+            })
+            throwIfAborted()
+            lastReply.value = reply
+            setAssistantText(reply)
+            pushActivity('生成完成')
+            return reply
+          } catch (streamErr) {
+            throwIfAborted()
+            if (anth.lastText.trim()) {
+              pushActivity('流式失败，采用工具轮正文')
+              markOutputStarted()
+              setAssistantText(anth.lastText)
+              lastReply.value = anth.lastText
+              pushActivity('生成完成')
+              return anth.lastText
+            }
+            throw streamErr
+          }
+        } catch (e) {
+          throwIfAborted()
+          console.warn('DeepSeek 联网失败，降级 OpenAI 工具轮', e)
+          pushActivity('联网不可用，改用本地工具通道…')
+        }
+      }
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         throwIfAborted()
@@ -501,7 +603,7 @@ export const useChatStore = defineStore('chat', () => {
         apiKey,
         model,
         messages: toolsOk
-          ? [...apiMessages, { role: 'user', content: '请基于已有信息继续，直接输出最终正文或回答，勿再调用工具。' }]
+          ? [...apiMessages, { role: 'user', content: finalNudge }]
           : [...systemParts, ...history],
         onAbortHandle: bindAbortHandle,
         onReasoning: (delta) => {
@@ -633,6 +735,8 @@ export const useChatStore = defineStore('chat', () => {
     outputStarted,
     injectOutline,
     injectLore,
+    injectLibrary,
+    webSearch,
     outlineRange,
     templates,
     selectedTemplateId,
@@ -642,6 +746,8 @@ export const useChatStore = defineStore('chat', () => {
     draftInfo,
     setReviseMode,
     setInjectLore,
+    setInjectLibrary,
+    setWebSearch,
     bindChapter,
     setMode,
     selectTemplate,

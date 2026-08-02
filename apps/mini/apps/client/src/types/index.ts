@@ -87,7 +87,28 @@ export interface UserSettings {
   injectOutlineByDefault: boolean
   /** 发送时按关键词自动注入命中的设定卡 */
   injectLoreByKeyword: boolean
+  /** 发送时按关键词自动注入命中的资料库条目 */
+  injectLibraryByKeyword: boolean
+  /**
+   * DeepSeek 原生联网搜索（Anthropic web_search）。
+   * 仅 defaultProvider/会话使用 DeepSeek 时生效；默认关闭。
+   */
+  enableDeepseekWebSearch: boolean
   apiBaseUrl: string
+}
+
+/** 小说资料库条目（同人/原作参考资料，按小说隔离） */
+export interface LibraryEntry {
+  id: string
+  novelId: string
+  title: string
+  /** 资料正文 */
+  content: string
+  /** 可选来源链接 */
+  sourceUrl?: string
+  /** 触发注入的关键词 */
+  keywords: string[]
+  updatedAt: string
 }
 
 /** 人物卡 / 道具卡 */
@@ -163,6 +184,8 @@ export interface SyncPayload {
   chapters: Chapter[]
   /** 人物/道具设定卡；旧快照可能缺失 */
   loreCards?: LoreCard[]
+  /** 资料库条目；旧快照可能缺失 */
+  libraryEntries?: LibraryEntry[]
   settings: UserSettings
   currentNovelId: string | null
   exportedAt: string
@@ -253,6 +276,30 @@ export function normalizeLoreCard(
     content: core,
     core,
     states,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
+  }
+}
+
+/** 兼容旧快照缺失字段 */
+export function normalizeLibraryEntry(
+  raw: Partial<LibraryEntry> & Pick<LibraryEntry, 'id' | 'novelId' | 'title'>,
+): LibraryEntry {
+  const sourceUrl =
+    typeof raw.sourceUrl === 'string' && raw.sourceUrl.trim()
+      ? raw.sourceUrl.trim()
+      : undefined
+  return {
+    id: raw.id,
+    novelId: raw.novelId,
+    title: String(raw.title || '').trim(),
+    content: typeof raw.content === 'string' ? raw.content : '',
+    sourceUrl,
+    keywords: Array.isArray(raw.keywords)
+      ? raw.keywords
+          .filter((k): k is string => typeof k === 'string')
+          .map((k) => k.trim())
+          .filter(Boolean)
+      : [],
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
   }
 }

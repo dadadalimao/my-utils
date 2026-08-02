@@ -46,6 +46,25 @@
         <text>关键词注入设定卡</text>
         <switch :checked="injectLoreByKeyword" @change="onInjectLore" :color="themeControlColor" />
       </view>
+      <view class="row-between">
+        <text>关键词注入资料库</text>
+        <switch
+          :checked="injectLibraryByKeyword"
+          @change="onInjectLibrary"
+          :color="themeControlColor"
+        />
+      </view>
+      <view class="row-between">
+        <text>DeepSeek 联网搜索</text>
+        <switch
+          :checked="enableDeepseekWebSearch"
+          @change="onWebSearch"
+          :color="themeControlColor"
+        />
+      </view>
+      <view class="muted hint-line">
+        仅使用 DeepSeek 时生效；走 Anthropic 端点原生 web_search，有额外耗时与费用。默认关闭。
+      </view>
 
       <view class="row">
         <view class="btn-primary" @click="save">保存设置</view>
@@ -90,6 +109,8 @@ const defaultModel = ref(s.defaultModel)
 const autoMaintainOutline = ref(s.autoMaintainOutline)
 const injectOutlineByDefault = ref(s.injectOutlineByDefault)
 const injectLoreByKeyword = ref(s.injectLoreByKeyword !== false)
+const injectLibraryByKeyword = ref(s.injectLibraryByKeyword !== false)
+const enableDeepseekWebSearch = ref(s.enableDeepseekWebSearch === true)
 const backendPingMsg = ref('')
 
 const providerNames = PROVIDERS.map((p) => p.name)
@@ -124,6 +145,14 @@ function onInjectLore(e: { detail: { value: boolean } }) {
   injectLoreByKeyword.value = e.detail.value
 }
 
+function onInjectLibrary(e: { detail: { value: boolean } }) {
+  injectLibraryByKeyword.value = e.detail.value
+}
+
+function onWebSearch(e: { detail: { value: boolean } }) {
+  enableDeepseekWebSearch.value = e.detail.value
+}
+
 function save() {
   settingsStore.save({
     apiBaseUrl: apiBaseUrl.value.trim(),
@@ -134,6 +163,8 @@ function save() {
     autoMaintainOutline: autoMaintainOutline.value,
     injectOutlineByDefault: injectOutlineByDefault.value,
     injectLoreByKeyword: injectLoreByKeyword.value,
+    injectLibraryByKeyword: injectLibraryByKeyword.value,
+    enableDeepseekWebSearch: enableDeepseekWebSearch.value,
   })
   uni.showToast({ title: '已保存', icon: 'success' })
 }
@@ -252,6 +283,8 @@ function onImport() {
         autoMaintainOutline.value = ns.autoMaintainOutline
         injectOutlineByDefault.value = ns.injectOutlineByDefault
         injectLoreByKeyword.value = ns.injectLoreByKeyword !== false
+        injectLibraryByKeyword.value = ns.injectLibraryByKeyword !== false
+        enableDeepseekWebSearch.value = ns.enableDeepseekWebSearch === true
         uni.hideLoading()
         uni.showToast({ title: '导入成功', icon: 'success' })
       } catch (e) {
@@ -296,6 +329,11 @@ function onImport() {
   justify-content: space-between;
   align-items: center;
   margin: 12rpx 0;
+}
+.hint-line {
+  font-size: 22rpx;
+  line-height: 1.5;
+  margin: -4rpx 0 12rpx;
 }
 .disabled {
   opacity: 0.45;

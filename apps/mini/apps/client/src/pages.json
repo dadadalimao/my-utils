@@ -31,6 +31,18 @@
       }
     },
     {
+      "path": "pages/library/index",
+      "style": {
+        "navigationBarTitleText": "资料库"
+      }
+    },
+    {
+      "path": "pages/library/edit",
+      "style": {
+        "navigationBarTitleText": "编辑资料"
+      }
+    },
+    {
       "path": "pages/bible/index",
       "style": {
         "navigationBarTitleText": "本书设定"

@@ -111,6 +111,7 @@ async function onAssist() {
     uni.showLoading({ title: 'AI 辅助中', mask: true })
     const provider = settings.settings.defaultProvider
     const text = await assistNovelBible({
+      novelId: novel.currentNovelId,
       current: bible.value,
       userPrompt: assistPrompt.value,
       provider,

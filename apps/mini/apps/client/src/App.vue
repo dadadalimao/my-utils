@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { onLaunch } from '@dcloudio/uni-app'
+import { storageReady } from '@/repository/storage'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useNovelStore } from '@/stores/novel'
 
-onLaunch(() => {
+onLaunch(async () => {
+  try {
+    await storageReady()
+  } catch (e) {
+    console.error('[App] storageReady failed', e)
+  }
   useSettingsStore().reload()
   useNovelStore().refresh()
   // 有缓存用缓存；已登录则后台刷新云端列表

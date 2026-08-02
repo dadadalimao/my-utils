@@ -205,6 +205,33 @@
         <view class="hint muted">发送内容命中人物/道具关键词时，自动把对应设定塞进提示词。</view>
 
         <view class="label row-between">
+          <text>关键词注入资料库</text>
+          <switch
+            :checked="chat.injectLibrary"
+            @change="onInjectLibraryChange"
+            :color="themeControlColor"
+          />
+        </view>
+        <view class="hint muted">发送内容命中资料关键词时，自动把对应参考资料塞进提示词。</view>
+
+        <view class="label row-between">
+          <text>联网搜索</text>
+          <switch
+            :checked="chat.webSearch"
+            :disabled="!isDeepseekProvider"
+            @change="onWebSearchChange"
+            :color="themeControlColor"
+          />
+        </view>
+        <view class="hint muted">
+          {{
+            isDeepseekProvider
+              ? 'DeepSeek 原生 web_search（Anthropic 端点），核对公开资料；有额外耗时与费用。'
+              : '仅 DeepSeek 可用；请先在设置中将默认厂商改为 DeepSeek。'
+          }}
+        </view>
+
+        <view class="label row-between">
           <text>注入大纲</text>
           <switch :checked="chat.injectOutline" @change="onInjectChange" :color="themeControlColor" />
         </view>
@@ -247,13 +274,19 @@ import {
 import { THEME_CONTROL_COLOR } from '@/constants/theme'
 import { useChatStore } from '@/stores/chat'
 import { useNovelStore } from '@/stores/novel'
+import { useSettingsStore } from '@/stores/settings'
 import SaveContentDone from '@/components/SaveContentDone.vue'
 import { useLoreStore } from '@/stores/lore'
 
 const themeControlColor = THEME_CONTROL_COLOR
 const chat = useChatStore()
 const novel = useNovelStore()
+const settings = useSettingsStore()
 const lore = useLoreStore()
+
+const isDeepseekProvider = computed(
+  () => settings.settings.defaultProvider === 'deepseek',
+)
 const input = ref('')
 const fromOrder = ref(1)
 const toOrder = ref(3)
@@ -415,6 +448,15 @@ function onReviseChange(e: { detail: { value: boolean } }) {
 
 function onInjectLoreChange(e: { detail: { value: boolean } }) {
   chat.setInjectLore(e.detail.value)
+}
+
+function onInjectLibraryChange(e: { detail: { value: boolean } }) {
+  chat.setInjectLibrary(e.detail.value)
+}
+
+function onWebSearchChange(e: { detail: { value: boolean } }) {
+  if (!isDeepseekProvider.value) return
+  chat.setWebSearch(e.detail.value)
 }
 
 function onRangeType(e: { detail: { value: string } }) {

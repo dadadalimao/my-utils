@@ -1,4 +1,5 @@
 import { chatCompletion } from './client'
+import { chatWithNovelTools, toolsSystemHint } from './tools'
 import type { Provider } from '@/types'
 
 /** 快速插入用的分节标签（保存时 AI 会按【标签】整理排版） */
@@ -67,9 +68,10 @@ export async function formatNovelBible(options: {
 }
 
 /**
- * AI 辅助撰写/补充本书设定（单轮，返回完整文本）。
+ * AI 辅助撰写/补充本书设定（可调用工具查阅大纲、章纲、设定卡等）。
  */
 export async function assistNovelBible(options: {
+  novelId: string
   current: string
   userPrompt: string
   provider: Provider
@@ -79,10 +81,12 @@ export async function assistNovelBible(options: {
   const prompt = options.userPrompt.trim()
   if (!prompt) throw new Error('请填写辅助要求')
 
-  const out = await chatCompletion({
+  const text = await chatWithNovelTools({
+    novelId: options.novelId,
     provider: options.provider,
     apiKey: options.apiKey,
     model: options.model,
+    finalNudge: '请基于已有信息直接输出完整本书设定正文，勿再调用工具，不要解释。',
     messages: [
       {
         role: 'system',
@@ -90,6 +94,8 @@ export async function assistNovelBible(options: {
           '你是小说世界观与文风设定助手，协助完善「本书通用设定」。',
           '输出完整设定正文（可含多节），每节以【标签】独占一行，例如【世界观】【文风】【道具品质】【高潮惯例】。',
           '在用户要求下补充、改写或扩写；保留仍有效的旧设定，勿无故删改。',
+          '需要对照全书大纲、章节大纲/正文或人物/道具设定卡时请调用工具；注意本书设定与设定卡不是同一概念。',
+          toolsSystemHint(),
           '只输出设定正文，不要解释。',
         ].join('\n'),
       },
@@ -105,7 +111,6 @@ export async function assistNovelBible(options: {
       },
     ],
   })
-  const text = out.trim()
   if (!text) throw new Error('AI 未返回设定内容')
   return text
 }
