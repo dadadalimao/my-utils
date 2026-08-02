@@ -1,12 +1,17 @@
 <template>
   <view class="page">
-    <view class="header" v-if="novel.currentNovel">
-      <text class="book">{{ novel.currentNovel.title }}</text>
-      <view class="header-links">
-        <text class="link" @click="goBookOutline">全书大纲</text>
-        <text class="link" @click="goBible">本书设定</text>
-        <text class="link" @click="goLore">设定卡</text>
-        <text class="link" @click="goLibrary">资料库</text>
+    <view class="quick-nav" v-if="novel.currentNovel">
+      <view class="quick-item" @click="goBookOutline">
+        <text class="quick-text">全书大纲</text>
+      </view>
+      <view class="quick-item" @click="goBible">
+        <text class="quick-text">本书设定</text>
+      </view>
+      <view class="quick-item" @click="goLore">
+        <text class="quick-text">设定卡</text>
+      </view>
+      <view class="quick-item" @click="goLibrary">
+        <text class="quick-text">资料库</text>
       </view>
     </view>
 
@@ -15,7 +20,7 @@
       <view class="muted migrate-desc">
         旧书当前为轻量模式。升级后写正文将强制全书大纲 + 章纲，设定卡支持本体/时间线。
       </view>
-      <view class="row">
+      <view class="row migrate-actions">
         <view class="btn-primary mini-btn" @click="goMigrate">升级向导</view>
         <text class="link" @click="dismissMigrate">暂不提示</text>
       </view>
@@ -75,7 +80,16 @@ const showMigrateBanner = computed(() => {
   return !dismissedIds.value.includes(n.id)
 })
 
-onShow(() => novel.refresh())
+onShow(() => {
+  novel.refresh()
+  syncNavTitle()
+})
+
+/** 导航栏展示书名（原「章节列表」位置） */
+function syncNavTitle() {
+  const title = novel.currentNovel?.title?.trim()
+  uni.setNavigationBarTitle({ title: title || '章节列表' })
+}
 
 function onCreate() {
   uni.showModal({
@@ -165,25 +179,31 @@ function onDelete(id: string) {
   min-height: 100vh;
   box-sizing: border-box;
 }
-.header {
+.quick-nav {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 20rpx;
-  gap: 12rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
-.header-links {
-  display: flex;
-  gap: 16rpx;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.book {
-  font-weight: 600;
-  font-size: 32rpx;
+.quick-item {
   flex: 1;
-  margin-right: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22rpx 8rpx;
+  min-height: 72rpx;
+  box-sizing: border-box;
+}
+.quick-item + .quick-item {
+  border-left: 1px solid var(--color-border);
+}
+.quick-text {
+  color: var(--color-accent);
+  font-size: 26rpx;
+  line-height: 1.2;
+  text-align: center;
 }
 .migrate-banner {
   border: 1px solid var(--color-warning);
@@ -198,6 +218,9 @@ function onDelete(id: string) {
   font-size: 24rpx;
   line-height: 1.5;
   margin-bottom: 12rpx;
+}
+.migrate-actions {
+  justify-content: space-between;
 }
 .mini-btn {
   display: inline-flex;

@@ -1,4 +1,9 @@
-import type { StorageBackend } from './types'
+/** 平台持久化后端：逻辑 key 不含 novel_ai_ 前缀，值为 JSON 字符串 */
+export interface StorageBackend {
+  loadAll(): Promise<Record<string, string>>
+  set(key: string, json: string): Promise<void>
+  remove(key: string): Promise<void>
+}
 
 const PREFIX = 'novel_ai_'
 
@@ -63,7 +68,7 @@ export function readAllUniPrefixed(): Record<string, string> {
 }
 
 /**
- * 删除已迁移的 uni.storage 前缀 key（保留未迁移成功时的备份）。
+ * 删除已迁移的 uni.storage 前缀 key。
  */
 export function removeUniPrefixedKeys(logicalKeys: string[]): void {
   for (const key of logicalKeys) {

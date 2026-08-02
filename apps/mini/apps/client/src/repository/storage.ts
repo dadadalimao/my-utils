@@ -1,11 +1,13 @@
-import type { StorageBackend } from './storageBackends/types'
-import { createIdbBackend } from './storageBackends/idb'
-import { createFsBackend } from './storageBackends/fs'
 import {
   createUniBackend,
   readAllUniPrefixed,
   removeUniPrefixedKeys,
-} from './storageBackends/uni'
+  type StorageBackend,
+} from './storageUni'
+
+// #ifdef H5
+import { createIdbBackend } from './storageIdb'
+// #endif
 
 const META_BACKEND = '__storageBackend'
 const BACKEND_V2 = 'v2'
@@ -20,6 +22,75 @@ let readyPromise: Promise<void> | null = null
 /** 是否使用非 uni 大容量后端（迁移后可清理 uni 副本） */
 let usesExternalBackend = false
 
+/**
+ * 微信：文件系统后端内联在本文件，避免嵌套 storageBackends/fs.js 在小程序中 require 失败。
+ */
+// #ifdef MP-WEIXIN
+function createFsBackend(): StorageBackend {
+  const fsm = uni.getFileSystemManager()
+  // @ts-expect-error 微信小程序 USER_DATA_PATH
+  const userPath: string = (wx.env && wx.env.USER_DATA_PATH) || ''
+  const root = `${userPath}/novel_ai_kv`
+
+  function ensureDir() {
+    try {
+      fsm.accessSync(root)
+    } catch {
+      try {
+        fsm.mkdirSync(root, true)
+      } catch {
+        /* race ok */
+      }
+    }
+  }
+
+  function filePath(key: string): string {
+    return `${root}/${encodeURIComponent(key)}.json`
+  }
+
+  return {
+    async loadAll() {
+      ensureDir()
+      const out: Record<string, string> = {}
+      let names: string[] = []
+      try {
+        names = fsm.readdirSync(root) as string[]
+      } catch {
+        return out
+      }
+      for (const name of names) {
+        if (!name.endsWith('.json')) continue
+        const encoded = name.slice(0, -'.json'.length)
+        let key: string
+        try {
+          key = decodeURIComponent(encoded)
+        } catch {
+          continue
+        }
+        try {
+          const raw = fsm.readFileSync(filePath(key), 'utf8') as string
+          if (raw) out[key] = raw
+        } catch {
+          /* skip */
+        }
+      }
+      return out
+    },
+    async set(key, json) {
+      ensureDir()
+      fsm.writeFileSync(filePath(key), json, 'utf8')
+    },
+    async remove(key) {
+      try {
+        fsm.unlinkSync(filePath(key))
+      } catch {
+        /* ignore missing */
+      }
+    },
+  }
+}
+// #endif
+
 function resolveBackend(): { backend: StorageBackend; external: boolean } {
   // #ifdef H5
   return { backend: createIdbBackend(), external: true }
@@ -27,7 +98,6 @@ function resolveBackend(): { backend: StorageBackend; external: boolean } {
   // #ifdef MP-WEIXIN
   return { backend: createFsBackend(), external: true }
   // #endif
-  // 其它端：继续 uni.storage（条件编译后 H5/微信不会落到此处）
   return { backend: createUniBackend(), external: false }
 }
 

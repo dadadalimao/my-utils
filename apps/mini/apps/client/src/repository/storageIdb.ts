@@ -1,4 +1,4 @@
-import type { StorageBackend } from './types'
+import type { StorageBackend } from './storageUni'
 
 const DB_NAME = 'novel_ai_kv'
 const STORE = 'kv'
