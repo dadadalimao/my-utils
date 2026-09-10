@@ -9,6 +9,7 @@
 | Web 工具 | [`tools/web/`](tools/web/) | 纯浏览器小工具，打开 [`tools/web/index.html`](tools/web/index.html) |
 | Node 工具 | [`tools/node/`](tools/node/) | 本地 Express 服务（GIF / 字体等），`cd tools/node && npm start` |
 | CLI 脚本 | [`tools/cli/`](tools/cli/) | PowerShell / Node / Python 辅助脚本 |
+| Game | [`game/`](game/) | 游戏脚本，按类型分子目录；AHK 宏在 [`game/ahk/input-macro/`](game/ahk/input-macro/) |
 | JavaTool | [`devtools/javaTool/`](devtools/javaTool/) | Java 项目启停 GUI |
 | Mini | [`apps/mini/`](apps/mini/) | AI 写小说（uni-app + Nest），故事资料在 `apps/mini/story/` |
 | 文档 | [`docs/`](docs/) | 提示词等备忘 |
