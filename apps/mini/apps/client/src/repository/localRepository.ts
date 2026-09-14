@@ -41,7 +41,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   deepseekApiKey: '',
   kimiApiKey: '',
   defaultProvider: 'deepseek',
-  defaultModel: 'deepseek-v4-flash',
+  defaultModel: 'deepseek-flash',
   autoMaintainOutline: true,
   injectOutlineByDefault: true,
   injectLoreByKeyword: true,
@@ -50,10 +50,11 @@ const DEFAULT_SETTINGS: UserSettings = {
   apiBaseUrl: 'http://localhost:3000',
 }
 
-/** DeepSeek 旧模型名 → V4（2026-07-24 起旧名不可用） */
+/** DeepSeek 旧模型名 → V4.1 Flash（API 名 `deepseek-flash`） */
 const LEGACY_DEEPSEEK_MODELS: Record<string, string> = {
-  'deepseek-chat': 'deepseek-v4-flash',
-  'deepseek-reasoner': 'deepseek-v4-flash',
+  'deepseek-chat': 'deepseek-flash',
+  'deepseek-reasoner': 'deepseek-flash',
+  'deepseek-v4-flash': 'deepseek-flash',
 }
 
 function now() {
