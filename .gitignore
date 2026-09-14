@@ -8,6 +8,10 @@ devtools/javaTool/sessions/
 devtools/javaTool/data/config.local.json
 devtools/javaTool/config.local.json
 
+# CLI 本地密钥
+tools/cli/.env
+tools/cli/**/.env
+
 # tools/node
 tools/node/node_modules/
 tools/node/.cache/
