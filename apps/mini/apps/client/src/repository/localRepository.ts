@@ -47,6 +47,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   injectLoreByKeyword: true,
   injectLibraryByKeyword: true,
   enableDeepseekWebSearch: false,
+  /** 默认轻思考：保留工具能力，避免过长推理 */
+  thinkingEffort: 'low',
   apiBaseUrl: 'http://localhost:3000',
 }
 
@@ -93,6 +95,10 @@ export const localRepository = {
     if (migrated) {
       settings.defaultModel = migrated
       storageSet(KEYS.settings, settings)
+    }
+    const effort = settings.thinkingEffort
+    if (effort !== 'off' && effort !== 'low' && effort !== 'high' && effort !== 'max') {
+      settings.thinkingEffort = DEFAULT_SETTINGS.thinkingEffort
     }
     return settings
   },

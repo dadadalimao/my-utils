@@ -33,6 +33,9 @@
         </view>
         <text class="mode-chevron">切换 ▾</text>
       </view>
+      <view class="icon-btn advice-btn" @click="openAdvice">
+        <text class="advice-icon">编</text>
+      </view>
       <view
         v-if="chat.activityLog.length || chat.loading"
         class="icon-btn log-btn"
@@ -73,13 +76,26 @@
         class="msg"
         :class="msg.role"
       >
-        <view class="msg-body" user-select selectable>{{ msg.content }}</view>
+        <view v-if="msg.analysis" class="msg-analysis">
+          <text class="msg-analysis-tag">分析 / 检索说明</text>
+          <view class="msg-analysis-body" user-select selectable>{{ msg.analysis }}</view>
+        </view>
+        <view v-if="msg.content" class="msg-body" user-select selectable>{{ msg.content }}</view>
         <view v-if="!msg.content && msg.role === 'assistant' && chat.loading" class="muted streaming">
           {{ chat.toolStatus || '生成中…' }}
           <text class="act log-inline" @click="logOpen = true">查看日志</text>
         </view>
         <view class="msg-actions">
-          <text class="act" @click="onCopy(msg.content)">复制</text>
+          <text class="act" @click="onCopy(msg.content)">
+            {{ msg.role === 'assistant' && msg.analysis ? '复制正文' : '复制' }}
+          </text>
+          <text
+            v-if="msg.analysis"
+            class="act"
+            @click="onCopyRaw(msg.analysis)"
+          >
+            复制说明
+          </text>
           <text
             v-if="msg.role === 'assistant' && msg.content && !chat.loading"
             class="act"
@@ -231,6 +247,23 @@
           }}
         </view>
 
+        <view class="label">思考强度</view>
+        <picker
+          :range="thinkingEffortLabels"
+          :value="thinkingEffortIndex"
+          :disabled="!isDeepseekProvider"
+          @change="onThinkingEffort"
+        >
+          <view class="picker">{{ thinkingEffortLabel }}</view>
+        </picker>
+        <view class="hint muted">
+          {{
+            isDeepseekProvider
+              ? '轻思考默认：可调工具、少长考。章节/大纲/编辑建议共用。关闭则无推理链。'
+              : '仅 DeepSeek 生效。'
+          }}
+        </view>
+
         <view class="label row-between">
           <text>注入大纲</text>
           <switch :checked="chat.injectOutline" @change="onInjectChange" :color="themeControlColor" />
@@ -250,6 +283,83 @@
       </view>
     </view>
 
+    <!-- 编辑建议弹框（独立会话） -->
+    <view v-if="adviceOpen" class="mask advice-mask" @click="onAdviceMask">
+      <view class="sheet advice-sheet" @click.stop>
+        <view class="sheet-title row-between">
+          <text>编辑建议</text>
+          <text class="act" @click="adviceOpen = false">关闭</text>
+        </view>
+        <view class="muted hint">以编辑视角给改法；可查设定/大纲。会话独立，不写进正文聊天。</view>
+
+        <view class="label">建议模板</view>
+        <picker :range="adviceTemplateNames" @change="onAdviceTplChange">
+          <view class="picker">{{ currentAdviceTplName }}</view>
+        </picker>
+
+        <scroll-view scroll-y class="advice-messages">
+          <view v-if="!chat.adviceMessages.length" class="muted empty-log">
+            描述你想改的问题，例如：本章节奏太慢、女主动机不清…
+          </view>
+          <view
+            v-for="msg in chat.adviceMessages"
+            :key="msg.id"
+            class="msg"
+            :class="msg.role"
+          >
+            <view class="msg-body" user-select selectable>{{ msg.content }}</view>
+            <view
+              v-if="!msg.content && msg.role === 'assistant' && chat.loading"
+              class="muted streaming"
+            >
+              {{ chat.toolStatus || '生成中…' }}
+              <text class="act log-inline" @click="logOpen = true">查看日志</text>
+            </view>
+            <view class="msg-actions">
+              <text class="act" @click="onCopy(msg.content)">复制</text>
+              <text
+                v-if="msg.role === 'user' && !chat.loading"
+                class="act"
+                @click="onAdviceEditResend(msg.id)"
+              >
+                编辑重发
+              </text>
+            </view>
+          </view>
+        </scroll-view>
+
+        <view class="composer advice-composer">
+          <textarea
+            v-model="adviceInput"
+            class="input ai-prompt-input"
+            placeholder="向编辑提问…"
+            :disabled="chat.loading"
+            :maxlength="20000"
+            :auto-height="false"
+            show-confirm-bar
+          />
+          <view class="input-meta">{{ adviceInput.length }}/20000</view>
+          <view class="actions">
+            <view
+              class="btn-primary"
+              :class="{ disabled: chat.loading }"
+              @click="onAdviceSend"
+            >
+              {{ chat.loading ? '生成中…' : '发送' }}
+            </view>
+            <view class="btn-ghost" @click="chat.clearAdviceMessages()">清空</view>
+            <view
+              v-if="chat.loading"
+              class="btn-ghost"
+              @click="onStop"
+            >
+              停止
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
     <SaveContentDone
       :visible="saveDone.visible"
       :is-latest="saveDone.isLatest"
@@ -266,7 +376,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import type { ChatMode } from '@/types'
+import type { ChatMode, ThinkingEffort } from '@/types'
+import { extractChapterBody } from '@/ai/chapterFence'
 import {
   buildWritingProgress,
   type WritingProgressItem,
@@ -288,10 +399,12 @@ const isDeepseekProvider = computed(
   () => settings.settings.defaultProvider === 'deepseek',
 )
 const input = ref('')
+const adviceInput = ref('')
 const fromOrder = ref(1)
 const toOrder = ref(3)
 const optionsOpen = ref(false)
 const modeSheetOpen = ref(false)
+const adviceOpen = ref(false)
 const logOpen = ref(false)
 /** 修订时默认展开底稿，方便对照描述 */
 const draftExpanded = ref(true)
@@ -307,8 +420,17 @@ const saveDone = reactive({
 const modes: { id: ChatMode; label: string; desc: string }[] = [
   { id: 'chapter', label: '章节', desc: '按模板写正文 / 修订正文' },
   { id: 'outline', label: '大纲', desc: '生成或细化章节大纲' },
-  { id: 'advice', label: '建议', desc: '剧情节奏与写法建议' },
 ]
+
+const THINKING_EFFORTS: ThinkingEffort[] = ['off', 'low', 'high', 'max']
+const thinkingEffortLabels = ['关闭', '轻思考', '标准', '最大']
+const thinkingEffortIndex = computed(() => {
+  const i = THINKING_EFFORTS.indexOf(settings.settings.thinkingEffort || 'low')
+  return i >= 0 ? i : 1
+})
+const thinkingEffortLabel = computed(
+  () => thinkingEffortLabels[thinkingEffortIndex.value] || '轻思考',
+)
 
 const currentModeLabel = computed(
   () => modes.find((m) => m.id === chat.mode)?.label || '章节',
@@ -423,18 +545,50 @@ const currentTplName = computed(() => {
   return t?.name || '默认'
 })
 
+const adviceTemplateNames = computed(() =>
+  chat.templates.filter((t) => t.mode === 'advice').map((t) => t.name),
+)
+const currentAdviceTplName = computed(() => {
+  const t = chat.templates.find((x) => x.id === chat.selectedAdviceTemplateId)
+  return t?.name || '默认写作建议'
+})
+
 onMounted(() => {
   chat.loadTemplates()
+  if (chat.mode === 'advice') chat.setMode('chapter')
 })
 onShow(() => {
   novel.refresh()
   chat.bindChapter(novel.currentChapterId)
+  settings.reload()
+  if (chat.mode === 'advice') chat.setMode('chapter')
 })
 
 function onTplChange(e: { detail: { value: string } }) {
   const list = chat.templates.filter((t) => t.mode === chat.mode)
   const idx = Number(e.detail.value)
   if (list[idx]) chat.selectTemplate(list[idx].id)
+}
+
+function onAdviceTplChange(e: { detail: { value: string } }) {
+  const list = chat.templates.filter((t) => t.mode === 'advice')
+  const idx = Number(e.detail.value)
+  if (list[idx]) chat.selectAdviceTemplate(list[idx].id)
+}
+
+function onThinkingEffort(e: { detail: { value: string } }) {
+  if (!isDeepseekProvider.value) return
+  const effort = THINKING_EFFORTS[Number(e.detail.value)]
+  if (!effort) return
+  settings.save({ thinkingEffort: effort })
+}
+
+function openAdvice() {
+  adviceOpen.value = true
+}
+
+function onAdviceMask() {
+  if (!chat.loading) adviceOpen.value = false
 }
 
 function onInjectChange(e: { detail: { value: boolean } }) {
@@ -495,6 +649,21 @@ function onCopy(content: string) {
     uni.showToast({ title: '内容为空', icon: 'none' })
     return
   }
+  // 若含 ```chapter，复制时只取正文，避免把分析说明一并拷走
+  const data = extractChapterBody(content) || content
+  uni.setClipboardData({
+    data,
+    success: () => uni.showToast({ title: '已复制', icon: 'success' }),
+    fail: () => uni.showToast({ title: '复制失败', icon: 'none' }),
+  })
+}
+
+/** 原样复制（分析说明等，不做 fence 抽取） */
+function onCopyRaw(content: string) {
+  if (!content) {
+    uni.showToast({ title: '内容为空', icon: 'none' })
+    return
+  }
   uni.setClipboardData({
     data: content,
     success: () => uni.showToast({ title: '已复制', icon: 'success' }),
@@ -533,6 +702,30 @@ async function onSend() {
     if (msg !== '已停止') {
       uni.showToast({ title: msg, icon: 'none' })
     }
+  }
+}
+
+async function onAdviceSend() {
+  const text = adviceInput.value.trim()
+  if (!text || chat.loading) return
+  logOpen.value = true
+  try {
+    await chat.send(text, { channel: 'advice' })
+    adviceInput.value = ''
+  } catch (e) {
+    const msg = (e as Error).message || '发送失败'
+    if (msg !== '已停止') {
+      uni.showToast({ title: msg, icon: 'none' })
+    }
+  }
+}
+
+function onAdviceEditResend(messageId: string) {
+  try {
+    adviceInput.value = chat.prepareAdviceEditResend(messageId)
+    uni.showToast({ title: '已填入，可编辑后发送', icon: 'none' })
+  } catch (e) {
+    uni.showToast({ title: (e as Error).message, icon: 'none' })
   }
 }
 
@@ -750,6 +943,43 @@ function onSaveOutline() {
   color: var(--color-accent);
   font-weight: 600;
 }
+.advice-btn {
+  border: 1px solid var(--color-accent);
+}
+.advice-icon {
+  font-size: 26rpx;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.advice-mask {
+  align-items: stretch;
+  justify-content: flex-end;
+}
+.advice-sheet {
+  max-height: 92vh;
+  height: 88vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 24rpx 24rpx 0 0;
+  margin-top: auto;
+}
+.advice-sheet .sheet-title {
+  text-align: left;
+}
+.advice-messages {
+  flex: 1;
+  min-height: 240rpx;
+  max-height: 48vh;
+  margin: 12rpx 0;
+  background: var(--color-surface-muted);
+  border-radius: 12rpx;
+  padding: 16rpx;
+  box-sizing: border-box;
+}
+.advice-composer {
+  margin-top: 0;
+  padding-top: 8rpx;
+}
 .pulse {
   animation: none;
 }
@@ -882,6 +1112,31 @@ function onSaveOutline() {
   -webkit-user-select: text;
   line-height: 1.65;
   color: var(--color-text);
+}
+/** 分析/检索说明：与正文区分，不参与落库观感 */
+.msg-analysis {
+  margin-bottom: 16rpx;
+  padding: 16rpx 18rpx;
+  border-radius: 10rpx;
+  background: var(--color-surface-muted);
+  border-left: 6rpx solid var(--color-text-faint);
+}
+.msg-analysis-tag {
+  display: block;
+  margin-bottom: 8rpx;
+  font-size: 22rpx;
+  letter-spacing: 0.04em;
+  color: var(--color-text-faint);
+}
+.msg-analysis-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  font-size: 26rpx;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 .streaming {
   margin-top: 8rpx;

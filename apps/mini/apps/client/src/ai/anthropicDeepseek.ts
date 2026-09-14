@@ -3,6 +3,7 @@
  * Base: https://api.deepseek.com/anthropic → POST /v1/messages
  */
 
+import type { ThinkingEffort } from '@/types'
 import type { ChatCompletionMessage } from './client'
 
 /** Anthropic content block（客户端关心的子集） */
@@ -45,6 +46,23 @@ export interface AnthropicToolsResult {
   thinking: string
   /** 仅客户端 tool_use（不含 server web_search） */
   clientToolUses: Array<{ id: string; name: string; input: Record<string, unknown> }>
+}
+
+/**
+ * Anthropic 格式思考强度：off 用 reasoning.effort=none；其余用 output_config.effort。
+ * （DeepSeek 文档：Anthropic 端点用 output_config.effort）
+ */
+export function applyAnthropicThinkingParams(
+  body: Record<string, unknown>,
+  effort?: ThinkingEffort | null,
+) {
+  if (!effort) return
+  if (effort === 'off') {
+    body.thinking = { type: 'disabled' }
+    return
+  }
+  body.thinking = { type: 'enabled' }
+  body.output_config = { effort }
 }
 
 function resolveAnthropicBase(): string {
@@ -164,6 +182,7 @@ export async function chatAnthropicWithTools(options: {
   messages: AnthropicMessage[]
   tools: AnthropicTool[]
   max_tokens?: number
+  thinkingEffort?: ThinkingEffort
   onAbortHandle?: (handle: { abort: () => void }) => void
 }): Promise<AnthropicToolsResult> {
   const { apiKey, model, system, messages, tools, max_tokens = 8192, onAbortHandle } = options
@@ -180,6 +199,7 @@ export async function chatAnthropicWithTools(options: {
     body.tools = tools
     body.tool_choice = { type: 'auto' }
   }
+  applyAnthropicThinkingParams(body, options.thinkingEffort)
 
   const res = await new Promise<UniApp.RequestSuccessCallbackResult>((resolve, reject) => {
     let settled = false
@@ -303,6 +323,7 @@ export async function chatAnthropicStream(options: {
   system?: string
   messages: AnthropicMessage[]
   max_tokens?: number
+  thinkingEffort?: ThinkingEffort
   onDelta?: (delta: string, fullText: string) => void
   onThinking?: (delta: string, full: string) => void
   onAbortHandle?: (handle: { abort: () => void }) => void
@@ -318,6 +339,7 @@ export async function chatAnthropicStream(options: {
     stream: true,
   }
   if (system?.trim()) body.system = system
+  applyAnthropicThinkingParams(body, options.thinkingEffort)
 
   // #ifdef H5
   if (typeof fetch !== 'undefined' && typeof window !== 'undefined') {

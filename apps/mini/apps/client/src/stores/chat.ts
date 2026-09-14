@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { chatAnthropicStream } from '@/ai/anthropicDeepseek'
+import { chatAnthropicWithTools } from '@/ai/anthropicDeepseek'
 import {
-  chatCompletionStream,
+  chatCompletion,
   chatCompletionWithTools,
   type ChatCompletionMessage,
 } from '@/ai/client'
 import { buildBookOutlineInjectContent } from '@/ai/bookOutline'
+import { chapterOutputFormatHint, parseChapterFence } from '@/ai/chapterFence'
 import { buildBibleInjectContent } from '@/ai/novelBible'
 import { buildLibraryInjectMessage } from '@/ai/libraryInject'
 import { buildLoreInjectMessage } from '@/ai/loreInject'
@@ -24,8 +25,12 @@ import {
 import {
   executeNovelTool,
   MAX_NOVEL_TOOL_ROUNDS,
+  ADOPT_TOOL_ROUND_CONTENT_MIN,
   NOVEL_TOOLS,
+  classifyToolRoundError,
+  messagesHaveToolResults,
   runDeepseekAnthropicToolRounds,
+  toolRoundFallbackActivity,
   toolStatusLabel,
   toolsSystemHint,
 } from '@/ai/tools'
@@ -71,6 +76,8 @@ export interface ActivityLogItem {
 export const useChatStore = defineStore('chat', () => {
   const mode = ref<ChatMode>('chapter')
   const messages = ref<ChatMessage[]>([])
+  /** 建议弹框独立会话，不污染正文/大纲对话 */
+  const adviceMessages = ref<ChatMessage[]>([])
   const loading = ref(false)
   const toolStatus = ref('')
   /** 本轮生成过程日志（可再次打开查看） */
@@ -88,6 +95,9 @@ export const useChatStore = defineStore('chat', () => {
   const outlineRange = ref<OutlineRange>({ type: 'continuity' })
   const templates = ref<PromptTemplate[]>(resolveInitialTemplates())
   const selectedTemplateId = ref(resolveInitialSelectedId(templates.value))
+  const selectedAdviceTemplateId = ref(
+    templates.value.find((t) => t.mode === 'advice')?.id || builtinByMode('advice').id,
+  )
   const lastReply = ref('')
   const reviseMode = ref(storageGet<boolean>('reviseMode', false))
   const boundChapterId = ref<string | null>(null)
@@ -194,10 +204,19 @@ export const useChatStore = defineStore('chat', () => {
     templates.value = list
     const stillValid = list.some((t) => t.id === selectedTemplateId.value)
     if (!stillValid) {
-      const forMode = list.find((t) => t.mode === mode.value) || list[0]
-      selectedTemplateId.value = forMode?.id || builtinByMode(mode.value).id
+      const forMode =
+        list.find((t) => t.mode === mode.value && t.mode !== 'advice') ||
+        list.find((t) => t.mode === 'chapter') ||
+        list[0]
+      selectedTemplateId.value = forMode?.id || builtinByMode('chapter').id
     }
     localRepository.saveSelectedTemplateId(selectedTemplateId.value)
+
+    const adviceOk = list.some((t) => t.id === selectedAdviceTemplateId.value && t.mode === 'advice')
+    if (!adviceOk) {
+      selectedAdviceTemplateId.value =
+        list.find((t) => t.mode === 'advice')?.id || builtinByMode('advice').id
+    }
   }
 
   function selectTemplate(id: string) {
@@ -205,7 +224,18 @@ export const useChatStore = defineStore('chat', () => {
     localRepository.saveSelectedTemplateId(id)
   }
 
+  function selectAdviceTemplate(id: string) {
+    selectedAdviceTemplateId.value = id
+  }
+
   function setMode(m: ChatMode) {
+    // 建议已独立弹框，工作台模式仅章节/大纲
+    if (m === 'advice') {
+      mode.value = 'chapter'
+      const t = templates.value.find((x) => x.mode === 'chapter') || builtinByMode('chapter')
+      selectTemplate(t.id)
+      return
+    }
     mode.value = m
     const t = templates.value.find((x) => x.mode === m) || builtinByMode(m)
     selectTemplate(t.id)
@@ -253,6 +283,10 @@ export const useChatStore = defineStore('chat', () => {
     outputStarted.value = false
   }
 
+  function clearAdviceMessages() {
+    adviceMessages.value = []
+  }
+
   function prepareEditResend(messageId: string): string {
     if (loading.value) throw new Error('生成中，请稍候')
     const idx = messages.value.findIndex((m) => m.id === messageId)
@@ -266,6 +300,17 @@ export const useChatStore = defineStore('chat', () => {
     return content
   }
 
+  function prepareAdviceEditResend(messageId: string): string {
+    if (loading.value) throw new Error('生成中，请稍候')
+    const idx = adviceMessages.value.findIndex((m) => m.id === messageId)
+    if (idx < 0) throw new Error('消息不存在')
+    const msg = adviceMessages.value[idx]
+    if (msg.role !== 'user') throw new Error('只能编辑用户消息')
+    const content = msg.content
+    adviceMessages.value = adviceMessages.value.slice(0, idx)
+    return content
+  }
+
   function useAsDraft(messageId: string) {
     const msg = messages.value.find((m) => m.id === messageId)
     if (!msg || msg.role !== 'assistant' || !msg.content.trim()) {
@@ -275,7 +320,11 @@ export const useChatStore = defineStore('chat', () => {
     setReviseMode(true)
   }
 
-  async function send(userText: string) {
+  /**
+   * 发送对话。channel=advice 走建议弹框独立会话（可用工具、不写正文底稿）。
+   */
+  async function send(userText: string, options?: { channel?: 'main' | 'advice' }) {
+    const isAdvice = options?.channel === 'advice'
     const settings = useSettingsStore()
     const novel = useNovelStore()
     if (!novel.currentNovelId) throw new Error('请先选择小说')
@@ -287,19 +336,21 @@ export const useChatStore = defineStore('chat', () => {
     const provider = settings.settings.defaultProvider
     const apiKey = settings.apiKeyFor(provider)
     const model = settings.settings.defaultModel
+    const thinkingEffort = settings.settings.thinkingEffort || 'low'
     const novelId = novel.currentNovelId
+    const chatMode: ChatMode = isAdvice ? 'advice' : mode.value
 
     const draft = draftInfo.value
-    const useRevise = reviseMode.value && draft.source !== 'none'
+    const useRevise = !isAdvice && reviseMode.value && draft.source !== 'none'
 
-    if (reviseMode.value && draft.source === 'none') {
+    if (!isAdvice && reviseMode.value && draft.source === 'none') {
       uni.showToast({ title: '无底稿，已按新创作发送', icon: 'none' })
     }
 
     const gate = checkWritingGate({
       novel: novel.currentNovel,
       currentChapterId: novel.currentChapterId,
-      chatMode: mode.value,
+      chatMode,
       revise: useRevise,
     })
     if (!gate.ok) {
@@ -326,38 +377,74 @@ export const useChatStore = defineStore('chat', () => {
     activityLog.value = []
     outputStarted.value = false
     pushActivity('准备请求…')
+    if (provider === 'deepseek') {
+      pushActivity(
+        `思考强度：${
+          { off: '关闭', low: '轻', high: '标准', max: '最大' }[thinkingEffort]
+        }`,
+      )
+    }
 
     const systemParts: ChatCompletionMessage[] = []
 
     const writingTarget = resolveWritingTarget(novelId, novel.currentChapterId)
-    pushActivity(`写作目标：${writingTarget.label}`)
+    pushActivity(isAdvice ? `咨询锚定：${writingTarget.label}` : `写作目标：${writingTarget.label}`)
 
     if (useRevise) {
       systemParts.push({ role: 'system', content: REVISE_SYSTEM_PROMPT })
       pushActivity('模式：修订')
+    } else if (isAdvice) {
+      const tpl =
+        templates.value.find((t) => t.id === selectedAdviceTemplateId.value) ||
+        builtinByMode('advice')
+      systemParts.push({ role: 'system', content: tpl.content })
+      pushActivity(`模式：编辑建议 · 模板「${tpl.name}」`)
     } else {
       const tpl =
         templates.value.find((t) => t.id === selectedTemplateId.value) ||
         builtinByMode(mode.value)
       systemParts.push({ role: 'system', content: tpl.content })
-      pushActivity(`模式：${{ chapter: '章节', outline: '大纲', advice: '建议' }[mode.value]} · 模板「${tpl.name}」`)
+      pushActivity(
+        `模式：${{ chapter: '章节', outline: '大纲', advice: '建议' }[mode.value]} · 模板「${tpl.name}」`,
+      )
     }
 
-    systemParts.push({
-      role: 'system',
-      content: buildWritingTargetMessage(writingTarget, {
-        revise: useRevise,
-        draftSource: useRevise ? draft.source : undefined,
-      }),
-    })
+    if (isAdvice) {
+      systemParts.push({
+        role: 'system',
+        content: [
+          `【编辑咨询上下文】当前关注：${writingTarget.label}`,
+          '请以资深小说编辑身份发言：诊断问题、给出可执行改法与示例短句；不要代写整章正文或整章大纲。',
+          '可调用工具核对设定/大纲/前文后再给建议，避免臆造已有内容。',
+        ].join('\n'),
+      })
+    } else {
+      systemParts.push({
+        role: 'system',
+        content: buildWritingTargetMessage(writingTarget, {
+          revise: useRevise,
+          draftSource: useRevise ? draft.source : undefined,
+        }),
+      })
+    }
+
     const useDeepseekWeb =
       provider === 'deepseek' && webSearch.value === true
 
     systemParts.push({
       role: 'system',
-      content: toolsSystemHint(writingTarget.label, { webSearch: useDeepseekWeb }),
+      content: toolsSystemHint(writingTarget.label, {
+        webSearch: useDeepseekWeb,
+        advice: isAdvice,
+      }),
     })
     if (useDeepseekWeb) pushActivity('已开启 DeepSeek 联网搜索')
+
+    /** 章节写作/修订：强制 ```chapter 正文格式，便于拆分思考与落库 */
+    const useChapterFence = !isAdvice && (mode.value === 'chapter' || useRevise)
+    if (useChapterFence) {
+      systemParts.push({ role: 'system', content: chapterOutputFormatHint() })
+    }
 
     const bibleText = novel.currentNovel?.meta?.bible?.trim()
     if (bibleText) {
@@ -430,8 +517,9 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     const displayUser = useRevise ? wrapReviseUserPrompt(userText) : userText
+    const thread = isAdvice ? adviceMessages : messages
 
-    messages.value.push({
+    thread.value.push({
       id: createId('m_'),
       role: 'user',
       content: useRevise ? `✎ 修订：${userText}` : userText,
@@ -440,13 +528,13 @@ export const useChatStore = defineStore('chat', () => {
 
     const history: ChatCompletionMessage[] = useRevise
       ? [{ role: 'user', content: displayUser }]
-      : messages.value.map((m) => ({
+      : thread.value.map((m) => ({
           role: m.role as 'user' | 'assistant' | 'system',
           content: m.content,
         }))
 
     const assistantId = createId('m_')
-    messages.value.push({
+    thread.value.push({
       id: assistantId,
       role: 'assistant',
       content: '',
@@ -454,22 +542,71 @@ export const useChatStore = defineStore('chat', () => {
     })
 
     const setAssistantText = (text: string) => {
-      const target = messages.value.find((m) => m.id === assistantId)
+      const target = thread.value.find((m) => m.id === assistantId)
       if (target) target.content = text
+    }
+
+    const setAssistantAnalysis = (text: string) => {
+      const target = thread.value.find((m) => m.id === assistantId)
+      if (target) target.analysis = text || undefined
     }
 
     const markOutputStarted = () => {
       if (outputStarted.value) return
       outputStarted.value = true
-      pushActivity('开始输出正文…')
+      pushActivity(isAdvice ? '开始输出建议…' : '开始输出正文…')
     }
+
+    /**
+     * 定稿写入气泡与 lastReply。
+     * 章节模式：```chapter 内为正文（可落库）；块外为分析说明（气泡特殊样式展示）。
+     */
+    const commitFinalReply = (raw: string): string => {
+      const trimmed = (raw || '').trim()
+      if (!trimmed) throw new Error('AI 返回为空')
+
+      if (!useChapterFence) {
+        markOutputStarted()
+        setAssistantAnalysis('')
+        setAssistantText(trimmed)
+        if (!isAdvice) lastReply.value = trimmed
+        pushActivity('生成完成')
+        return trimmed
+      }
+
+      const { body, preface, hadFence } = parseChapterFence(trimmed)
+      if (!hadFence) {
+        pushActivity('未检测到 ```chapter 标记，整段当作正文')
+      }
+      const finalBody = body.trim() || trimmed
+      const analysis = preface.trim()
+      markOutputStarted()
+      setAssistantAnalysis(analysis)
+      setAssistantText(finalBody)
+      lastReply.value = finalBody
+      if (analysis) {
+        pushActivity('已拆出分析/检索说明（仅展示，不落库）')
+      }
+      pushActivity('生成完成')
+      return finalBody
+    }
+
+    const finalNudge = isAdvice
+      ? '请基于已有信息继续，直接输出编辑建议，勿再调用工具，勿代写整章正文。'
+      : useChapterFence
+        ? [
+            '请基于已有信息继续，勿再调用工具。',
+            '分析说明可写在代码块外；最终完整正文必须包在：',
+            '```chapter',
+            '（完整正文）',
+            '```',
+          ].join('\n')
+        : '请基于已有信息继续，直接输出最终正文或回答，勿再调用工具。'
 
     loading.value = true
     try {
       const apiMessages: ChatCompletionMessage[] = [...systemParts, ...history]
       let toolsOk = true
-      const finalNudge =
-        '请基于已有信息继续，直接输出最终正文或回答，勿再调用工具。'
 
       // DeepSeek 联网：Anthropic 端点 + web_search；失败降级 OpenAI tools
       if (useDeepseekWeb) {
@@ -482,53 +619,48 @@ export const useChatStore = defineStore('chat', () => {
             messages: apiMessages,
             maxRounds: MAX_TOOL_ROUNDS,
             defaultAsOfOrder: writingTarget.order,
+            // 工具轮关闭思考；正式生成再用用户设置的思考强度
+            thinkingEffort: 'off',
             onActivity: pushActivity,
             onThinking: appendThinking,
             onAbortHandle: bindAbortHandle,
           })
           throwIfAborted()
-          pushActivity('流式生成正文…')
-          setAssistantText('')
-          try {
-            const reply = await chatAnthropicStream({
-              apiKey,
-              model,
-              system: anth.system,
-              messages: [
-                ...anth.messages,
-                { role: 'user', content: finalNudge },
-              ],
-              onAbortHandle: bindAbortHandle,
-              onThinking: (delta) => appendThinking(delta),
-              onDelta: (_delta, fullText) => {
-                if (fullText) markOutputStarted()
-                setAssistantText(fullText)
-                lastReply.value = fullText
-              },
-            })
-            throwIfAborted()
-            lastReply.value = reply
-            setAssistantText(reply)
-            pushActivity('生成完成')
-            return reply
-          } catch (streamErr) {
-            throwIfAborted()
-            if (anth.lastText.trim()) {
-              pushActivity('流式失败，采用工具轮正文')
-              markOutputStarted()
-              setAssistantText(anth.lastText)
-              lastReply.value = anth.lastText
-              pushActivity('生成完成')
-              return anth.lastText
-            }
-            throw streamErr
+          const anthReady = anth.lastText.trim()
+          // 效率优先：工具轮已写出正文则直接采用，不再强制二次生成
+          if (anthReady.length >= ADOPT_TOOL_ROUND_CONTENT_MIN) {
+            pushActivity('资料已齐，采用本轮正文…')
+            return commitFinalReply(anthReady)
           }
+          pushActivity(isAdvice ? '生成建议…' : '生成正文…')
+          setAssistantText('')
+          const final = await chatAnthropicWithTools({
+            apiKey,
+            model,
+            system: anth.system,
+            messages: [
+              ...anth.messages,
+              { role: 'user', content: finalNudge },
+            ],
+            tools: [],
+            max_tokens: 16384,
+            thinkingEffort,
+            onAbortHandle: bindAbortHandle,
+          })
+          throwIfAborted()
+          const reply = (final.text || anthReady).trim()
+          if (!reply) throw new Error('AI 返回为空')
+          if (final.thinking) appendThinking(final.thinking)
+          return commitFinalReply(reply)
         } catch (e) {
           throwIfAborted()
           console.warn('DeepSeek 联网失败，降级 OpenAI 工具轮', e)
           pushActivity('联网不可用，改用本地工具通道…')
         }
       }
+
+      /** 工具轮已产出、可直接采用的正文 */
+      let adoptedFromTools = ''
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         throwIfAborted()
@@ -542,14 +674,24 @@ export const useChatStore = defineStore('chat', () => {
             messages: apiMessages,
             tools: NOVEL_TOOLS,
             tool_choice: 'auto',
+            // 工具轮关闭思考，避免非流式长考触顶超时
+            thinkingEffort: 'off',
             onAbortHandle: bindAbortHandle,
           })
         } catch (e) {
           throwIfAborted()
-          // 厂商不支持 tools 等：降级为纯流式
-          console.warn('tools 请求失败，降级无工具流式', e)
-          pushActivity('工具调用不可用，改直接流式生成')
-          toolsOk = false
+          const kind = classifyToolRoundError(e)
+          const keepContext = kind !== 'unsupported' && messagesHaveToolResults(apiMessages)
+          const errMsg = e instanceof Error ? e.message : String(e || '')
+          console.warn(
+            'tools 请求失败',
+            kind,
+            keepContext ? '保留已查资料' : '丢弃工具上下文',
+            e,
+          )
+          pushActivity(toolRoundFallbackActivity(kind, keepContext, errMsg))
+          // 仅「不支持 tools」或尚无工具结果时丢弃上下文；超时等则带着已查资料继续生成
+          toolsOk = keepContext
           break
         }
         throwIfAborted()
@@ -559,12 +701,16 @@ export const useChatStore = defineStore('chat', () => {
         }
 
         if (!result.tool_calls?.length) {
-          // 即使本轮已带正文，也不在非流式里整包落地，改走下方流式以恢复边出边看
-          pushActivity(
-            result.content?.trim()
-              ? '资料已齐，进入流式输出…'
-              : '未调用工具，进入流式生成',
-          )
+          const text = (result.content || '').trim()
+          if (text.length >= ADOPT_TOOL_ROUND_CONTENT_MIN) {
+            // 模型已在工具轮写完正文：直接采用，避免再请求一轮
+            pushActivity('资料已齐，采用本轮正文…')
+            adoptedFromTools = text
+          } else {
+            pushActivity(
+              text ? '资料已齐，补全生成…' : '未调用工具，开始生成…',
+            )
+          }
           break
         }
 
@@ -595,44 +741,45 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       throwIfAborted()
-      pushActivity(toolsOk ? '流式生成正文…' : '流式生成…')
+
+      if (adoptedFromTools) {
+        return commitFinalReply(adoptedFromTools)
+      }
+
+      pushActivity(
+        toolsOk
+          ? isAdvice
+            ? '生成建议…'
+            : '生成正文…'
+          : '生成（无工具上下文）…',
+      )
       setAssistantText('')
 
-      const reply = await chatCompletionStream({
+      const reply = await chatCompletion({
         provider,
         apiKey,
         model,
+        thinkingEffort,
         messages: toolsOk
           ? [...apiMessages, { role: 'user', content: finalNudge }]
           : [...systemParts, ...history],
         onAbortHandle: bindAbortHandle,
-        onReasoning: (delta) => {
-          appendThinking(delta)
-        },
-        onDelta: (_delta, fullText) => {
-          if (fullText) markOutputStarted()
-          setAssistantText(fullText)
-          lastReply.value = fullText
-        },
       })
       throwIfAborted()
-      lastReply.value = reply
-      setAssistantText(reply)
-      pushActivity('生成完成')
-      return reply
+      return commitFinalReply(reply)
     } catch (e) {
       const msg = (e as Error).message || ''
       if (aborted || msg === '已停止') {
         pushActivity('已停止生成')
-        const target = messages.value.find((m) => m.id === assistantId)
+        const target = thread.value.find((m) => m.id === assistantId)
         if (target && !target.content.trim()) {
-          messages.value = messages.value.filter((m) => m.id !== assistantId)
+          thread.value = thread.value.filter((m) => m.id !== assistantId)
         }
         throw new Error('已停止')
       }
-      const target = messages.value.find((m) => m.id === assistantId)
+      const target = thread.value.find((m) => m.id === assistantId)
       if (target && !target.content) {
-        messages.value = messages.value.filter((m) => m.id !== assistantId)
+        thread.value = thread.value.filter((m) => m.id !== assistantId)
       }
       pushActivity(`失败：${msg || '未知错误'}`)
       throw e
@@ -648,13 +795,17 @@ export const useChatStore = defineStore('chat', () => {
     const settings = useSettingsStore()
     if (!lastReply.value) throw new Error('没有可保存的内容')
 
+    // 兜底：若气泡里仍含 fence，落库只取代码块内正文
+    const contentToSave = parseChapterFence(lastReply.value).body.trim() || lastReply.value
+
     let cid = chapterId
     if (!cid) {
       const c = novel.createChapter(title || `第${novel.chapters.length + 1}章`)
       cid = c.id
     }
-    novel.saveChapterContent(cid, lastReply.value)
+    novel.saveChapterContent(cid, contentToSave)
     bindChapter(cid)
+    lastReply.value = contentToSave
 
     const provider = settings.settings.defaultProvider
     const apiKey = settings.apiKeyFor(provider)
@@ -665,13 +816,13 @@ export const useChatStore = defineStore('chat', () => {
     if (ch && isPlaceholderChapterTitle(ch.title, ch.order)) {
       try {
         const generated = await generateChapterTitleFromContent({
-          content: lastReply.value,
+          content: contentToSave,
           order: ch.order,
           provider,
           apiKey,
           model,
         })
-        novel.saveChapterContent(cid, lastReply.value, generated)
+        novel.saveChapterContent(cid, contentToSave, generated)
       } catch (e) {
         console.warn('自动生成章节标题失败', e)
         uni.showToast({ title: '正文已保存，标题生成失败', icon: 'none' })
@@ -729,6 +880,7 @@ export const useChatStore = defineStore('chat', () => {
   return {
     mode,
     messages,
+    adviceMessages,
     loading,
     toolStatus,
     activityLog,
@@ -740,6 +892,7 @@ export const useChatStore = defineStore('chat', () => {
     outlineRange,
     templates,
     selectedTemplateId,
+    selectedAdviceTemplateId,
     lastReply,
     reviseMode,
     boundChapterId,
@@ -751,9 +904,12 @@ export const useChatStore = defineStore('chat', () => {
     bindChapter,
     setMode,
     selectTemplate,
+    selectAdviceTemplate,
     loadTemplates,
     clearMessages,
+    clearAdviceMessages,
     prepareEditResend,
+    prepareAdviceEditResend,
     useAsDraft,
     send,
     stopGeneration,

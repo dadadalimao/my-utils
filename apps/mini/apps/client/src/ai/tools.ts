@@ -6,13 +6,71 @@ import {
   type AnthropicMessage,
   type AnthropicTool,
 } from '@/ai/anthropicDeepseek'
-import { chatCompletion, chatCompletionWithTools, type ChatCompletionMessage } from '@/ai/client'
+import {
+  chatCompletion,
+  chatCompletionWithTools,
+  TOOLS_REQUEST_TIMEOUT_MS,
+  type ChatCompletionMessage,
+} from '@/ai/client'
 import { localRepository } from '@/repository/localRepository'
 import { assembleLoreView } from '@/types'
 import type { Provider } from '@/types'
 
 /** 辅助页 / 工作台共用的最大工具轮数 */
 export const MAX_NOVEL_TOOL_ROUNDS = 10
+
+/**
+ * 工具轮已无 tool_calls（或联网轮 lastText）且正文长于此则直接采用，避免再请求一轮。
+ */
+export const ADOPT_TOOL_ROUND_CONTENT_MIN = 120
+
+export type ToolRoundFailureKind = 'timeout' | 'unsupported' | 'other'
+
+/**
+ * 区分工具轮失败原因：超时 / 不支持 tools / 其它。
+ */
+export function classifyToolRoundError(e: unknown): ToolRoundFailureKind {
+  const msg = e instanceof Error ? e.message : String(e || '')
+  if (/time\s*out|timeout/i.test(msg)) return 'timeout'
+  if (
+    /not support.*tool|tool.*not support|does not support tools|unsupported.*tool|unknown tool/i.test(
+      msg,
+    ) ||
+    (/\b400\b/.test(msg) && /tool/i.test(msg))
+  ) {
+    return 'unsupported'
+  }
+  return 'other'
+}
+
+/** 会话中是否已有工具回填结果（可保留上下文继续生成） */
+export function messagesHaveToolResults(messages: ChatCompletionMessage[]): boolean {
+  return messages.some((m) => m.role === 'tool')
+}
+
+/**
+ * 工具轮失败时的活动日志文案（是否保留已查资料）。
+ */
+export function toolRoundFallbackActivity(
+  kind: ToolRoundFailureKind,
+  keepContext: boolean,
+  errMsg?: string,
+): string {
+  const sec = Math.round(TOOLS_REQUEST_TIMEOUT_MS / 1000)
+  if (kind === 'timeout') {
+    return keepContext
+      ? `工具轮超时（${sec}s），保留已查资料，改流式生成`
+      : `工具轮超时（${sec}s），改直接流式生成`
+  }
+  if (kind === 'unsupported') {
+    return '当前模型不支持工具，改直接流式'
+  }
+  const detail = (errMsg || '').trim().slice(0, 80)
+  const suffix = detail ? `：${detail}` : ''
+  return keepContext
+    ? `工具轮失败${suffix}，保留已查资料，改流式生成`
+    : `工具轮失败${suffix}，改直接流式生成`
+}
 
 /** OpenAI 兼容 tool 定义 */
 export const NOVEL_TOOLS = [
@@ -184,7 +242,7 @@ export const NOVEL_TOOLS = [
  */
 export function toolsSystemHint(
   writingTargetLabel?: string,
-  options?: { webSearch?: boolean },
+  options?: { webSearch?: boolean; advice?: boolean },
 ): string {
   const target = writingTargetLabel?.trim()
   const lines = [
@@ -197,7 +255,14 @@ export function toolsSystemHint(
       '已提供 web_search 联网工具：可检索公开网页核对原作设定/资料；检索结果仅作参考，勿与本书设定、设定卡混淆，勿编造未检索到的事实。',
     )
   }
-  if (target) {
+  if (options?.advice) {
+    lines.push(
+      '当前为编辑建议会话：查阅资料后给出可执行的编辑意见，不要代写整章正文或整章大纲。',
+    )
+    if (target) {
+      lines.push(`咨询上下文锚定「${target}」；引用前后章仅作对照，最终输出须是对该目标的编辑建议。`)
+    }
+  } else if (target) {
     lines.push(
       `当前写作目标是「${target}」。查阅上一章等仅用于核对衔接；最终输出必须是该目标章正文，不得以上一章正文为主体交差。`,
     )
@@ -475,6 +540,7 @@ export async function runDeepseekAnthropicToolRounds(options: {
   messages: ChatCompletionMessage[]
   maxRounds?: number
   defaultAsOfOrder?: number
+  thinkingEffort?: import('@/types').ThinkingEffort
   onActivity?: (text: string) => void
   onThinking?: (text: string) => void
   onAbortHandle?: (handle: { abort: () => void }) => void
@@ -489,6 +555,7 @@ export async function runDeepseekAnthropicToolRounds(options: {
     model,
     maxRounds = MAX_NOVEL_TOOL_ROUNDS,
     defaultAsOfOrder,
+    thinkingEffort,
     onActivity,
     onThinking,
     onAbortHandle,
@@ -512,6 +579,7 @@ export async function runDeepseekAnthropicToolRounds(options: {
       system,
       messages: anthMessages,
       tools,
+      thinkingEffort,
       onAbortHandle,
     })
 
@@ -564,6 +632,7 @@ export async function chatWithNovelTools(options: {
   finalNudge?: string
   /** DeepSeek 原生联网；默认读用户设置 enableDeepseekWebSearch */
   enableWebSearch?: boolean
+  thinkingEffort?: import('@/types').ThinkingEffort
 }): Promise<string> {
   const {
     novelId,
@@ -573,6 +642,7 @@ export async function chatWithNovelTools(options: {
     maxRounds = MAX_NOVEL_TOOL_ROUNDS,
     defaultAsOfOrder,
     finalNudge = '请基于已有信息直接输出最终结果，勿再调用工具。',
+    thinkingEffort,
   } = options
   const enableWebSearch =
     options.enableWebSearch ??
@@ -588,25 +658,12 @@ export async function chatWithNovelTools(options: {
         messages: options.messages,
         maxRounds,
         defaultAsOfOrder,
+        thinkingEffort: 'off',
       })
-      if (lastText.trim()) {
-        // 再要一轮无 tools 的最终整理
-        try {
-          const final = await chatAnthropicWithTools({
-            apiKey,
-            model,
-            system,
-            messages: [
-              ...anthMessages,
-              { role: 'user', content: finalNudge },
-            ],
-            tools: [],
-          })
-          if (final.text.trim()) return final.text.trim()
-        } catch {
-          /* 用上一轮正文 */
-        }
-        return lastText.trim()
+      const ready = lastText.trim()
+      // 效率优先：工具轮已写出足够正文则直接采用，不再强制二次生成
+      if (ready.length >= ADOPT_TOOL_ROUND_CONTENT_MIN) {
+        return ready
       }
       const final = await chatAnthropicWithTools({
         apiKey,
@@ -614,8 +671,10 @@ export async function chatWithNovelTools(options: {
         system,
         messages: [...anthMessages, { role: 'user', content: finalNudge }],
         tools: [],
+        thinkingEffort: 'off',
       })
       if (final.text.trim()) return final.text.trim()
+      if (ready) return ready
     } catch (e) {
       console.warn('DeepSeek 联网工具轮失败，降级 OpenAI tools', e)
     }
@@ -634,10 +693,14 @@ export async function chatWithNovelTools(options: {
         messages: apiMessages,
         tools: NOVEL_TOOLS,
         tool_choice: 'auto',
+        // 工具轮关闭思考，避免非流式长考触顶超时
+        thinkingEffort: 'off',
       })
     } catch (e) {
-      console.warn('tools 请求失败，降级无工具补全', e)
-      toolsOk = false
+      const kind = classifyToolRoundError(e)
+      const keepContext = kind !== 'unsupported' && messagesHaveToolResults(apiMessages)
+      console.warn('tools 请求失败', kind, keepContext ? '保留上下文' : '丢弃上下文', e)
+      toolsOk = keepContext
       break
     }
 
@@ -675,6 +738,7 @@ export async function chatWithNovelTools(options: {
     apiKey,
     model,
     messages: finalMessages,
+    thinkingEffort,
   })
   return out.trim()
 }

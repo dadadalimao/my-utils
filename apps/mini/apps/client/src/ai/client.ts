@@ -1,5 +1,5 @@
 import { getProvider } from '@/constants/providers'
-import type { Provider } from '@/types'
+import type { Provider, ThinkingEffort } from '@/types'
 
 export interface ChatCompletionMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -26,11 +26,31 @@ export interface ToolDef {
   }
 }
 
+/**
+ * 将思考强度写入 OpenAI 兼容请求体（仅 DeepSeek 有意义）。
+ * off → thinking.disabled；其余 → enabled + reasoning_effort。
+ */
+export function applyOpenAiThinkingParams(
+  body: Record<string, unknown>,
+  provider: Provider,
+  effort?: ThinkingEffort | null,
+) {
+  if (provider !== 'deepseek' || !effort) return
+  if (effort === 'off') {
+    body.thinking = { type: 'disabled' }
+    return
+  }
+  body.thinking = { type: 'enabled' }
+  body.reasoning_effort = effort
+}
+
 export interface StreamOptions {
   provider: Provider
   apiKey: string
   model: string
   messages: ChatCompletionMessage[]
+  /** DeepSeek 思考强度；非 DeepSeek 忽略 */
+  thinkingEffort?: ThinkingEffort
   /** 每收到一段正文增量回调 */
   onDelta?: (delta: string, fullText: string) => void
   /** 每收到一段思考（reasoning_content）增量回调 */
@@ -154,11 +174,15 @@ function streamViaChunked(options: StreamOptions): Promise<string> {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'text/event-stream',
       },
-      data: {
-        model,
-        messages,
-        stream: true,
-      },
+      data: (() => {
+        const body: Record<string, unknown> = {
+          model,
+          messages,
+          stream: true,
+        }
+        applyOpenAiThinkingParams(body, provider, options.thinkingEffort)
+        return body
+      })(),
       enableChunked: true,
       timeout: 300000,
       success: (res) => {
@@ -217,6 +241,13 @@ async function streamViaFetch(options: StreamOptions): Promise<string> {
     onAbortHandle?.({ abort: () => ac.abort() })
   }
 
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    stream: true,
+  }
+  applyOpenAiThinkingParams(body, provider, options.thinkingEffort)
+
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -224,11 +255,7 @@ async function streamViaFetch(options: StreamOptions): Promise<string> {
       Authorization: `Bearer ${apiKey}`,
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: true,
-    }),
+    body: JSON.stringify(body),
     signal: ac?.signal,
   })
 
@@ -309,6 +336,7 @@ export async function chatCompletionStream(options: StreamOptions): Promise<stri
       apiKey: options.apiKey,
       model: options.model,
       messages: options.messages,
+      thinkingEffort: options.thinkingEffort,
     }).then((text) => {
       options.onDelta?.(text, text)
       return text
@@ -318,46 +346,74 @@ export async function chatCompletionStream(options: StreamOptions): Promise<stri
 
 /**
  * 客户端直连厂商（OpenAI 兼容 chat/completions，非流式）。
+ * 正文生成优先走此接口（效率优先，不强求流式）。
  */
 export async function chatCompletion(options: {
   provider: Provider
   apiKey: string
   model: string
   messages: ChatCompletionMessage[]
+  thinkingEffort?: ThinkingEffort
+  /** 默认 300s，长章节非流式生成需要更长时间 */
+  timeoutMs?: number
+  onAbortHandle?: (handle: { abort: () => void }) => void
 }): Promise<string> {
-  const { provider, apiKey, model, messages } = options
+  const { provider, apiKey, model, messages, onAbortHandle } = options
   if (!apiKey) throw new Error('请先配置 API Key')
 
   const url = `${resolveBaseUrl(provider)}/v1/chat/completions`
+  const data: Record<string, unknown> = {
+    model,
+    messages,
+    stream: false,
+  }
+  applyOpenAiThinkingParams(data, provider, options.thinkingEffort)
 
+  const timeoutMs = options.timeoutMs ?? 300000
   const res = await new Promise<UniApp.RequestSuccessCallbackResult>((resolve, reject) => {
-    uni.request({
+    let settled = false
+    const done = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      fn()
+    }
+    const task = uni.request({
       url,
       method: 'POST',
       header: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      data: {
-        model,
-        messages,
-        stream: false,
+      data,
+      timeout: timeoutMs,
+      success: (r) => done(() => resolve(r)),
+      fail: (err) => {
+        const msg = (err as { errMsg?: string })?.errMsg || 'network error'
+        done(() => reject(new Error(/abort/i.test(msg) ? '已停止' : msg)))
       },
-      timeout: 120000,
-      success: resolve,
-      fail: reject,
+    }) as UniApp.RequestTask & { abort?: () => void }
+
+    onAbortHandle?.({
+      abort: () => {
+        try {
+          task?.abort?.()
+        } catch {
+          /* ignore */
+        }
+        done(() => reject(new Error('已停止')))
+      },
     })
   })
 
   if (res.statusCode < 200 || res.statusCode >= 300) {
-    const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
-    throw new Error(`AI 请求失败 (${res.statusCode}): ${body}`)
+    const errBody = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+    throw new Error(`AI 请求失败 (${res.statusCode}): ${errBody}`)
   }
 
-  const data = res.data as {
+  const payload = res.data as {
     choices?: { message?: { content?: string } }[]
   }
-  const content = data.choices?.[0]?.message?.content
+  const content = payload.choices?.[0]?.message?.content
   if (!content) throw new Error('AI 返回为空')
   return content
 }
@@ -369,6 +425,9 @@ export interface ToolsCompletionResult {
   reasoning_content?: string
 }
 
+/** 工具轮非流式请求超时（ms）；与活动日志文案共用 */
+export const TOOLS_REQUEST_TIMEOUT_MS = 180000
+
 /**
  * 非流式 + tools（用于 Function Calling 工具轮）。
  */
@@ -379,12 +438,21 @@ export async function chatCompletionWithTools(options: {
   messages: ChatCompletionMessage[]
   tools: ToolDef[]
   tool_choice?: 'auto' | 'none'
+  thinkingEffort?: ThinkingEffort
   onAbortHandle?: (handle: { abort: () => void }) => void
 }): Promise<ToolsCompletionResult> {
   const { provider, apiKey, model, messages, tools, onAbortHandle } = options
   if (!apiKey) throw new Error('请先配置 API Key')
 
   const url = `${resolveBaseUrl(provider)}/v1/chat/completions`
+  const data: Record<string, unknown> = {
+    model,
+    messages,
+    stream: false,
+    tools,
+    tool_choice: options.tool_choice ?? 'auto',
+  }
+  applyOpenAiThinkingParams(data, provider, options.thinkingEffort)
 
   const res = await new Promise<UniApp.RequestSuccessCallbackResult>((resolve, reject) => {
     let settled = false
@@ -400,14 +468,8 @@ export async function chatCompletionWithTools(options: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      data: {
-        model,
-        messages,
-        stream: false,
-        tools,
-        tool_choice: options.tool_choice ?? 'auto',
-      },
-      timeout: 180000,
+      data,
+      timeout: TOOLS_REQUEST_TIMEOUT_MS,
       success: (r) => done(() => resolve(r)),
       fail: (err) => {
         const msg = err.errMsg || 'network error'
@@ -428,11 +490,11 @@ export async function chatCompletionWithTools(options: {
   })
 
   if (res.statusCode < 200 || res.statusCode >= 300) {
-    const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
-    throw new Error(`AI 请求失败 (${res.statusCode}): ${body}`)
+    const errBody = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+    throw new Error(`AI 请求失败 (${res.statusCode}): ${errBody}`)
   }
 
-  const data = res.data as {
+  const payload = res.data as {
     choices?: {
       message?: {
         content?: string | null
@@ -442,7 +504,7 @@ export async function chatCompletionWithTools(options: {
       finish_reason?: string
     }[]
   }
-  const msg = data.choices?.[0]?.message
+  const msg = payload.choices?.[0]?.message
   const reasoning = (msg?.reasoning_content || '').trim()
   return {
     content: msg?.content || '',

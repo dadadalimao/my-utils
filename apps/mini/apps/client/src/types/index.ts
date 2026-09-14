@@ -1,5 +1,8 @@
-/** 对话模式 */
+/** 对话模式（建议已独立为弹框会话，仍保留 advice 供模板/门禁） */
 export type ChatMode = 'chapter' | 'outline' | 'advice'
+
+/** DeepSeek 思考强度：off 关闭；low/high/max 开启并设 effort */
+export type ThinkingEffort = 'off' | 'low' | 'high' | 'max'
 
 /** AI 厂商 */
 export type Provider = 'deepseek' | 'kimi'
@@ -94,6 +97,11 @@ export interface UserSettings {
    * 仅 defaultProvider/会话使用 DeepSeek 时生效；默认关闭。
    */
   enableDeepseekWebSearch: boolean
+  /**
+   * DeepSeek 思考强度（章节/大纲/建议共用）。
+   * 默认 low：可用工具且不过度长考；仅 DeepSeek 生效。
+   */
+  thinkingEffort: ThinkingEffort
   apiBaseUrl: string
 }
 
@@ -166,6 +174,10 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  /**
+   * ```chapter 外的分析/检索说明；仅展示，不落库正文。
+   */
+  analysis?: string
   createdAt: string
 }
 
