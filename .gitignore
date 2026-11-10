@@ -1,7 +1,12 @@
 # 忽略合并脚本文件
 bat/totest.bat 
-临时
+临时文件
+.temp/
 192.168*
+
+# Python 字节码
+__pycache__/
+*.py[cod]
 
 # javaTool 运行时终端 session
 devtools/javaTool/sessions/
