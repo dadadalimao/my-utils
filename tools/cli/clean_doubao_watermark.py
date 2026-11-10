@@ -8,8 +8,9 @@ import runpy
 import sys
 from pathlib import Path
 
+# tools/cli -> 仓库根目录
 _SCRIPT = (
-    Path(__file__).resolve().parent.parent
+    Path(__file__).resolve().parent.parent.parent
     / ".cursor"
     / "skills"
     / "clean-doubao-watermark"
