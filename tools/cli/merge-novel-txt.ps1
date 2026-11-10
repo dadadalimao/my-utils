@@ -66,6 +66,20 @@ function Remove-NovelVolumeFooter {
     return [regex]::Replace($Text, $pattern, '', 1)
 }
 
+<#
+.SYNOPSIS
+去掉紧跟章标题的缩进重复行。
+
+速读谷导出常见格式：章名单独一行，下一行用全角空格再写一遍相同章号。
+只删除「上一行已是同章号标题」的缩进行，正文里的对话不会被删。
+#>
+function Remove-DuplicateChapterTitles {
+    param([string]$Text)
+
+    $pattern = '(?m)^(第(\d+)章[^\r\n]*)\r?\n[ \t\u3000]+第\2章[^\r\n]*'
+    return [regex]::Replace($Text, $pattern, '$1')
+}
+
 function Read-Utf8File {
     param([string]$FilePath)
     return [System.IO.File]::ReadAllText($FilePath, $script:Utf8NoBom)
@@ -165,6 +179,7 @@ foreach ($group in $groups) {
     $lastIndex = $parts.Count - 1
     for ($i = 0; $i -lt $parts.Count; $i++) {
         $text = Read-Utf8File -FilePath $parts[$i].FullName
+        $text = Remove-DuplicateChapterTitles -Text $text
         # 第一卷保留书名头；后续卷去掉重复头，避免整书出现多次作者/来源
         if ($i -gt 0) {
             $text = Remove-NovelVolumeHeader -Text $text
