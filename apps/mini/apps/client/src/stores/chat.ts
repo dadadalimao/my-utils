@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { chatAnthropicWithTools } from '@/ai/anthropicDeepseek'
 import {
   chatCompletion,
@@ -8,6 +8,7 @@ import {
 } from '@/ai/client'
 import { buildBookOutlineInjectContent } from '@/ai/bookOutline'
 import { chapterOutputFormatHint, parseChapterFence } from '@/ai/chapterFence'
+import { vulgarizeChapterContent } from '@/ai/vulgarizeContent'
 import { buildBibleInjectContent } from '@/ai/novelBible'
 import { buildLibraryInjectMessage } from '@/ai/libraryInject'
 import { buildLoreInjectMessage } from '@/ai/loreInject'
@@ -34,11 +35,18 @@ import {
   toolStatusLabel,
   toolsSystemHint,
 } from '@/ai/tools'
+import { buildOtokonokoInjectContent } from '@/constants/otokonoko'
+import { buildR18LexiconInject, isR18Template } from '@/constants/r18Lexicon'
 import { REVISE_SYSTEM_PROMPT, wrapReviseUserPrompt } from '@/constants/revise'
 import { builtinByMode, BUILTIN_TEMPLATES } from '@/constants/templates'
 import { apiFetchTemplates } from '@/api/http'
 import { localRepository } from '@/repository/localRepository'
 import { storageGet, storageSet } from '@/repository/storage'
+import {
+  loadWorkbenchSession,
+  removeWorkbenchSession,
+  saveWorkbenchSession,
+} from '@/repository/workbenchSession'
 import {
   createId,
   getWritingMode,
@@ -53,8 +61,19 @@ import { useSettingsStore } from './settings'
 
 const MAX_TOOL_ROUNDS = MAX_NOVEL_TOOL_ROUNDS
 
+function overlayBuiltinContent(list: PromptTemplate[]): PromptTemplate[] {
+  const byKey = new Map(
+    BUILTIN_TEMPLATES.map((t) => [`${t.mode}::${t.name}`, t.content]),
+  )
+  return list.map((t) => {
+    const content = byKey.get(`${t.mode}::${t.name}`)
+    return content ? { ...t, content } : t
+  })
+}
+
 function resolveInitialTemplates(): PromptTemplate[] {
-  return localRepository.getCachedPromptTemplates() || [...BUILTIN_TEMPLATES]
+  const cached = localRepository.getCachedPromptTemplates()
+  return overlayBuiltinContent(cached?.length ? cached : [...BUILTIN_TEMPLATES])
 }
 
 function resolveInitialSelectedId(list: PromptTemplate[]): string {
@@ -87,6 +106,8 @@ export const useChatStore = defineStore('chat', () => {
   const injectOutline = ref(true)
   const injectLore = ref(storageGet<boolean>('injectLoreByKeyword', true))
   const injectLibrary = ref(storageGet<boolean>('injectLibraryByKeyword', true))
+  /** 勾选后注入伪娘角色创作写作需求 */
+  const injectOtokonoko = ref(storageGet<boolean>('injectOtokonoko', false))
   /** 会话级 DeepSeek 联网；默认跟随设置 */
   const webSearch = ref(
     storageGet<boolean | null>('webSearchSession', null) ??
@@ -100,7 +121,14 @@ export const useChatStore = defineStore('chat', () => {
   )
   const lastReply = ref('')
   const reviseMode = ref(storageGet<boolean>('reviseMode', false))
+  const boundNovelId = ref<string | null>(null)
   const boundChapterId = ref<string | null>(null)
+  /** 输入框进 store，页面重挂也能还在 */
+  const composerInput = ref('')
+  const adviceComposerInput = ref('')
+  /** 首次 bind 前禁止把空状态写成暂存、冲掉磁盘里的现场 */
+  let sessionReady = false
+  let persistTimer: ReturnType<typeof setTimeout> | null = null
 
   let aborted = false
   let abortHandle: { abort: () => void } | null = null
@@ -166,6 +194,20 @@ export const useChatStore = defineStore('chat', () => {
     return { source: 'none' as DraftSource, text: '' }
   })
 
+  /**
+   * 一键粗俗用的正文：章节模式优先最近生成，否则当前章已存正文。
+   * 大纲模式不用最近回复（那是纲），只认已存章节正文。
+   */
+  function resolveVulgarizeText(): string {
+    if (mode.value !== 'outline' && lastReply.value.trim()) {
+      return lastReply.value.trim()
+    }
+    const novel = useNovelStore()
+    return novel.currentChapter?.content?.trim() || ''
+  }
+
+  const canVulgarize = computed(() => !!resolveVulgarizeText())
+
   function setReviseMode(on: boolean) {
     reviseMode.value = on
     storageSet('reviseMode', on)
@@ -181,27 +223,116 @@ export const useChatStore = defineStore('chat', () => {
     storageSet('injectLibraryByKeyword', on)
   }
 
+  /**
+   * 开关「伪娘需求」：生成时是否把伪娘写作需求注入 system。
+   */
+  function setInjectOtokonoko(on: boolean) {
+    injectOtokonoko.value = on
+    storageSet('injectOtokonoko', on)
+  }
+
   function setWebSearch(on: boolean) {
     webSearch.value = on
     storageSet('webSearchSession', on)
   }
 
+  function sessionIsEmpty() {
+    return (
+      !composerInput.value.trim() &&
+      !adviceComposerInput.value.trim() &&
+      !messages.value.length &&
+      !adviceMessages.value.length &&
+      !lastReply.value &&
+      !activityLog.value.length
+    )
+  }
+
+  /** 立刻把当前小说+章节的工作台现场写入本地 */
+  function persistSessionNow() {
+    if (!sessionReady || !boundNovelId.value) return
+    if (sessionIsEmpty()) {
+      removeWorkbenchSession(boundNovelId.value, boundChapterId.value)
+      return
+    }
+    saveWorkbenchSession({
+      novelId: boundNovelId.value,
+      chapterId: boundChapterId.value,
+      input: composerInput.value,
+      adviceInput: adviceComposerInput.value,
+      messages: messages.value,
+      adviceMessages: adviceMessages.value,
+      lastReply: lastReply.value,
+      activityLog: activityLog.value,
+      savedAt: new Date().toISOString(),
+    })
+  }
+
+  function schedulePersistSession() {
+    if (!sessionReady) return
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      persistSessionNow()
+    }, 400)
+  }
+
+  function hydrateSession() {
+    if (!boundNovelId.value) return
+    const snap = loadWorkbenchSession(boundNovelId.value, boundChapterId.value)
+    if (!snap) {
+      composerInput.value = ''
+      adviceComposerInput.value = ''
+      return
+    }
+    composerInput.value = snap.input || ''
+    adviceComposerInput.value = snap.adviceInput || ''
+    if (!messages.value.length && snap.messages?.length) {
+      messages.value = snap.messages
+    }
+    if (!adviceMessages.value.length && snap.adviceMessages?.length) {
+      adviceMessages.value = snap.adviceMessages
+    }
+    if (!lastReply.value && snap.lastReply) {
+      lastReply.value = snap.lastReply
+    }
+    if (!activityLog.value.length && snap.activityLog?.length) {
+      activityLog.value = snap.activityLog
+    }
+  }
+
+  function resetLiveSession() {
+    messages.value = []
+    lastReply.value = ''
+    activityLog.value = []
+    outputStarted.value = false
+    toolStatus.value = ''
+    composerInput.value = ''
+    adviceComposerInput.value = ''
+    adviceMessages.value = []
+  }
+
   function bindChapter(chapterId: string | null) {
-    if (boundChapterId.value === chapterId) return
+    const novel = useNovelStore()
+    const novelId = novel.currentNovelId
+    if (boundNovelId.value === novelId && boundChapterId.value === chapterId) return
+    if (sessionReady && boundNovelId.value) persistSessionNow()
+    const switchingNovel = boundNovelId.value !== null && boundNovelId.value !== novelId
     const switching =
       boundChapterId.value !== null &&
       chapterId !== null &&
       boundChapterId.value !== chapterId
     const leaving = boundChapterId.value !== null && chapterId === null
-    if (switching || leaving) {
-      messages.value = []
-      lastReply.value = ''
+    if (switching || leaving || switchingNovel) {
+      resetLiveSession()
     }
+    boundNovelId.value = novelId
     boundChapterId.value = chapterId
+    sessionReady = true
+    hydrateSession()
   }
 
   function applyTemplates(list: PromptTemplate[]) {
-    templates.value = list
+    templates.value = overlayBuiltinContent(list)
     const stillValid = list.some((t) => t.id === selectedTemplateId.value)
     if (!stillValid) {
       const forMode =
@@ -281,10 +412,12 @@ export const useChatStore = defineStore('chat', () => {
     toolStatus.value = ''
     activityLog.value = []
     outputStarted.value = false
+    persistSessionNow()
   }
 
   function clearAdviceMessages() {
     adviceMessages.value = []
+    persistSessionNow()
   }
 
   function prepareEditResend(messageId: string): string {
@@ -297,6 +430,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = messages.value.slice(0, idx)
     const lastAsst = [...messages.value].reverse().find((m) => m.role === 'assistant')
     lastReply.value = lastAsst?.content || ''
+    persistSessionNow()
     return content
   }
 
@@ -308,6 +442,7 @@ export const useChatStore = defineStore('chat', () => {
     if (msg.role !== 'user') throw new Error('只能编辑用户消息')
     const content = msg.content
     adviceMessages.value = adviceMessages.value.slice(0, idx)
+    persistSessionNow()
     return content
   }
 
@@ -318,6 +453,88 @@ export const useChatStore = defineStore('chat', () => {
     }
     lastReply.value = msg.content
     setReviseMode(true)
+    persistSessionNow()
+  }
+
+  /**
+   * 把当前正文改写成更直白的口语脏词，结果写入对话并作为最近生成。
+   */
+  async function vulgarizeDraft() {
+    if (loading.value) throw new Error('生成中，请稍候')
+    const source = resolveVulgarizeText()
+    if (!source) throw new Error('没有可改写的正文')
+
+    const settings = useSettingsStore()
+    const novel = useNovelStore()
+    if (!novel.currentNovelId) throw new Error('请先选择小说')
+    if (novel.currentChapterId && boundChapterId.value !== novel.currentChapterId) {
+      bindChapter(novel.currentChapterId)
+    }
+
+    const provider = settings.settings.defaultProvider
+    const apiKey = settings.apiKeyFor(provider)
+    if (!apiKey) throw new Error('请先配置 API Key')
+
+    aborted = false
+    abortHandle = null
+    activityLog.value = []
+    outputStarted.value = false
+    pushActivity('一键粗俗：改写正文用词…')
+
+    const userId = createId('m_')
+    const assistantId = createId('m_')
+    messages.value.push({
+      id: userId,
+      role: 'user',
+      content: '✎ 一键粗俗',
+      createdAt: new Date().toISOString(),
+    })
+    messages.value.push({
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+    })
+
+    loading.value = true
+    toolStatus.value = '粗俗改写中…'
+    try {
+      const next = await vulgarizeChapterContent({
+        text: source,
+        provider,
+        apiKey,
+        model: settings.settings.defaultModel,
+        injectOtokonoko: injectOtokonoko.value,
+        onAbortHandle: bindAbortHandle,
+      })
+      throwIfAborted()
+      const target = messages.value.find((m) => m.id === assistantId)
+      if (target) target.content = next
+      lastReply.value = next
+      outputStarted.value = true
+      pushActivity('粗俗改写完成')
+    } catch (e) {
+      const msg = (e as Error).message || ''
+      if (aborted || msg === '已停止') {
+        pushActivity('已停止改写')
+        const target = messages.value.find((m) => m.id === assistantId)
+        if (target && !target.content.trim()) {
+          messages.value = messages.value.filter((m) => m.id !== assistantId && m.id !== userId)
+        }
+        throw new Error('已停止')
+      }
+      const empty = messages.value.find((m) => m.id === assistantId)
+      if (empty && !empty.content) {
+        messages.value = messages.value.filter((m) => m.id !== assistantId && m.id !== userId)
+      }
+      pushActivity(`失败：${msg || '未知错误'}`)
+      throw e
+    } finally {
+      loading.value = false
+      abortHandle = null
+      toolStatus.value = ''
+      persistSessionNow()
+    }
   }
 
   /**
@@ -446,6 +663,11 @@ export const useChatStore = defineStore('chat', () => {
       systemParts.push({ role: 'system', content: chapterOutputFormatHint() })
     }
 
+    if (injectOtokonoko.value) {
+      systemParts.push({ role: 'system', content: buildOtokonokoInjectContent() })
+      pushActivity('已注入伪娘写作需求')
+    }
+
     const bibleText = novel.currentNovel?.meta?.bible?.trim()
     if (bibleText) {
       const bibleMsg = buildBibleInjectContent(bibleText)
@@ -505,6 +727,18 @@ export const useChatStore = defineStore('chat', () => {
       } else {
         pushActivity('资料库：未命中关键词')
       }
+    }
+
+    const activeTpl = isAdvice
+      ? templates.value.find((t) => t.id === selectedAdviceTemplateId.value)
+      : templates.value.find((t) => t.id === selectedTemplateId.value)
+    const useR18Lexicon =
+      injectOtokonoko.value ||
+      isR18Template(activeTpl?.id) ||
+      isR18Template(activeTpl?.name)
+    if (useR18Lexicon) {
+      systemParts.push({ role: 'system', content: buildR18LexiconInject() })
+      pushActivity('已注入粗俗用词')
     }
 
     if (useRevise) {
@@ -787,6 +1021,7 @@ export const useChatStore = defineStore('chat', () => {
       loading.value = false
       abortHandle = null
       toolStatus.value = ''
+      persistSessionNow()
     }
   }
 
@@ -806,6 +1041,7 @@ export const useChatStore = defineStore('chat', () => {
     novel.saveChapterContent(cid, contentToSave)
     bindChapter(cid)
     lastReply.value = contentToSave
+    persistSessionNow()
 
     const provider = settings.settings.defaultProvider
     const apiKey = settings.apiKeyFor(provider)
@@ -874,8 +1110,11 @@ export const useChatStore = defineStore('chat', () => {
       updatedAt: new Date().toISOString(),
     })
     bindChapter(cid)
+    persistSessionNow()
     return cid
   }
+
+  watch([composerInput, adviceComposerInput], schedulePersistSession)
 
   return {
     mode,
@@ -888,6 +1127,7 @@ export const useChatStore = defineStore('chat', () => {
     injectOutline,
     injectLore,
     injectLibrary,
+    injectOtokonoko,
     webSearch,
     outlineRange,
     templates,
@@ -896,10 +1136,15 @@ export const useChatStore = defineStore('chat', () => {
     lastReply,
     reviseMode,
     boundChapterId,
+    composerInput,
+    adviceComposerInput,
     draftInfo,
+    canVulgarize,
+    flushSession: persistSessionNow,
     setReviseMode,
     setInjectLore,
     setInjectLibrary,
+    setInjectOtokonoko,
     setWebSearch,
     bindChapter,
     setMode,
@@ -911,6 +1156,7 @@ export const useChatStore = defineStore('chat', () => {
     prepareEditResend,
     prepareAdviceEditResend,
     useAsDraft,
+    vulgarizeDraft,
     send,
     stopGeneration,
     saveReplyAsContent,

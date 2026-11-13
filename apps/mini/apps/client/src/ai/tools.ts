@@ -630,6 +630,12 @@ export async function chatWithNovelTools(options: {
   defaultAsOfOrder?: number
   /** 工具轮结束后仍无正文时，追加的催促文案 */
   finalNudge?: string
+  /**
+   * 工具轮已有正文时是否直接采用。
+   * 默认：长度达到 ADOPT_TOOL_ROUND_CONTENT_MIN。
+   * 结构化输出（如多章 JSON）应传入可解析才采用，避免把分析当结果。
+   */
+  acceptEarly?: (text: string) => boolean
   /** DeepSeek 原生联网；默认读用户设置 enableDeepseekWebSearch */
   enableWebSearch?: boolean
   thinkingEffort?: import('@/types').ThinkingEffort
@@ -644,6 +650,7 @@ export async function chatWithNovelTools(options: {
     finalNudge = '请基于已有信息直接输出最终结果，勿再调用工具。',
     thinkingEffort,
   } = options
+  const acceptEarly = options.acceptEarly
   const enableWebSearch =
     options.enableWebSearch ??
     (provider === 'deepseek' &&
@@ -661,8 +668,11 @@ export async function chatWithNovelTools(options: {
         thinkingEffort: 'off',
       })
       const ready = lastText.trim()
-      // 效率优先：工具轮已写出足够正文则直接采用，不再强制二次生成
-      if (ready.length >= ADOPT_TOOL_ROUND_CONTENT_MIN) {
+      const earlyOk = acceptEarly
+        ? acceptEarly(ready)
+        : ready.length >= ADOPT_TOOL_ROUND_CONTENT_MIN
+      // 效率优先：工具轮已写出可接受结果则直接采用，不再强制二次生成
+      if (ready && earlyOk) {
         return ready
       }
       const final = await chatAnthropicWithTools({
@@ -706,7 +716,15 @@ export async function chatWithNovelTools(options: {
 
     if (!result.tool_calls?.length) {
       const text = (result.content || '').trim()
-      if (text) return text
+      if (text && (!acceptEarly || acceptEarly(text))) return text
+      // 有正文但未通过校验时保留助手消息，供 finalNudge 改写成目标格式
+      if (text && acceptEarly) {
+        apiMessages.push({
+          role: 'assistant',
+          content: result.content || null,
+          reasoning_content: result.reasoning_content || null,
+        })
+      }
       break
     }
 

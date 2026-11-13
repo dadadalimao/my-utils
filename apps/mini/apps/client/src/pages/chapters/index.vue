@@ -1,17 +1,19 @@
 <template>
   <view class="page">
-    <view class="quick-nav" v-if="novel.currentNovel">
-      <view class="quick-item" @click="goBookOutline">
-        <text class="quick-text">全书大纲</text>
-      </view>
-      <view class="quick-item" @click="goBible">
-        <text class="quick-text">本书设定</text>
-      </view>
-      <view class="quick-item" @click="goLore">
-        <text class="quick-text">设定卡</text>
-      </view>
-      <view class="quick-item" @click="goLibrary">
-        <text class="quick-text">资料库</text>
+    <view class="quick-nav-wrap" v-if="novel.currentNovel">
+      <view class="quick-nav">
+        <view class="quick-item" @click="goBookOutline">
+          <text class="quick-text">全书大纲</text>
+        </view>
+        <view class="quick-item" @click="goBible">
+          <text class="quick-text">本书设定</text>
+        </view>
+        <view class="quick-item" @click="goLore">
+          <text class="quick-text">设定卡</text>
+        </view>
+        <view class="quick-item" @click="goLibrary">
+          <text class="quick-text">资料库</text>
+        </view>
       </view>
     </view>
 
@@ -44,11 +46,12 @@
         <text class="title">第{{ ch.order }}章 · {{ ch.title }}</text>
         <text v-if="ch.id === novel.currentChapterId" class="tag">当前</text>
       </view>
-      <view class="muted">
-        {{ ch.outline.summary || (ch.content ? `正文 ${ch.content.length} 字` : '暂无内容') }}
+      <view v-if="outlineOpen" class="outline-preview muted">
+        {{ ch.outline.summary?.trim() || '暂无大纲' }}
       </view>
       <view class="row">
         <text class="link" @click.stop="openDetail(ch.id)">查看/编辑</text>
+        <text class="link" @click.stop="goReader(ch.id)">阅读</text>
         <text class="danger" @click.stop="onDelete(ch.id)">删除</text>
       </view>
     </view>
@@ -56,6 +59,30 @@
 
     <view class="fab" @click="onCreate">
       <text class="fab-plus">+</text>
+    </view>
+
+    <!-- 左侧悬浮：阅读、大纲显隐、滚到底、滚到顶 -->
+    <view v-if="novel.currentNovel" class="side-actions">
+      <view class="capsule" @click="goReader()">
+        <text class="cap-label">阅读</text>
+      </view>
+      <view class="capsule" :class="{ on: outlineOpen }" @click="toggleOutline">
+        <view v-if="outlineOpen" class="chevron up" />
+        <view v-else class="bars">
+          <view class="bar" />
+          <view class="bar" />
+          <view class="bar short" />
+        </view>
+        <text class="cap-label">{{ outlineOpen ? '折叠' : '大纲' }}</text>
+      </view>
+      <view class="capsule" @click="scrollToBottom">
+        <view class="chevron down" />
+        <text class="cap-label">到底</text>
+      </view>
+      <view class="capsule" @click="scrollToTop">
+        <view class="chevron up" />
+        <text class="cap-label">到顶</text>
+      </view>
     </view>
   </view>
 </template>
@@ -69,6 +96,23 @@ import { useNovelStore } from '@/stores/novel'
 
 const novel = useNovelStore()
 const dismissedIds = ref<string[]>(storageGet<string[]>('migrateBannerDismissed', []))
+/** 章节卡片上的大纲摘要，默认折叠 */
+const outlineOpen = ref(false)
+
+/** 折叠或展开各章大纲摘要 */
+function toggleOutline() {
+  outlineOpen.value = !outlineOpen.value
+}
+
+/** 目录滚到页面顶部 */
+function scrollToTop() {
+  uni.pageScrollTo({ scrollTop: 0, duration: 280 })
+}
+
+/** 目录滚到页面底部 */
+function scrollToBottom() {
+  uni.pageScrollTo({ scrollTop: 1000000, duration: 280 })
+}
 
 const isLong = computed(() => getWritingMode(novel.currentNovel?.meta) === 'long')
 
@@ -117,6 +161,18 @@ function goWorkbench(id: string) {
 
 function openDetail(id: string) {
   uni.navigateTo({ url: `/pages/chapter-detail/index?id=${id}` })
+}
+
+/**
+ * 进入阅读模式。传入章节则从该章开始，否则接着上次读到的章。
+ */
+function goReader(id?: string) {
+  if (!novel.chapters.length) {
+    uni.showToast({ title: '暂无章节', icon: 'none' })
+    return
+  }
+  const q = id ? `?id=${id}` : ''
+  uni.navigateTo({ url: `/pages/reader/index${q}` })
 }
 
 function goLore() {
@@ -175,13 +231,20 @@ function onDelete(id: string) {
 <style scoped>
 .page {
   padding: 24rpx;
-  padding-bottom: 200rpx;
+  padding-bottom: calc(340rpx + env(safe-area-inset-bottom));
   min-height: 100vh;
   box-sizing: border-box;
 }
+.quick-nav-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  margin: -24rpx -24rpx 20rpx;
+  padding: 16rpx 24rpx 12rpx;
+  background: var(--color-bg);
+}
 .quick-nav {
   display: flex;
-  margin-bottom: 20rpx;
   border-radius: 12rpx;
   overflow: hidden;
   background: var(--color-surface);
@@ -258,11 +321,85 @@ function onDelete(id: string) {
   padding: 4rpx 12rpx;
   border-radius: 8rpx;
 }
+.outline-preview {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
 .row {
   display: flex;
   gap: 24rpx;
   margin-top: 12rpx;
   align-items: center;
+}
+.side-actions {
+  position: fixed;
+  left: 20rpx;
+  bottom: calc(48rpx + env(safe-area-inset-bottom));
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+.capsule {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  height: 64rpx;
+  padding: 0 18rpx 0 14rpx;
+  border-radius: 999rpx;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 8rpx 20rpx var(--color-fab-shadow);
+  box-sizing: border-box;
+}
+.capsule.on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.cap-label {
+  font-size: 24rpx;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.capsule.on .cap-label {
+  color: var(--color-primary-contrast);
+}
+.bars {
+  width: 22rpx;
+  height: 18rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.bar {
+  height: 3rpx;
+  border-radius: 2rpx;
+  background: var(--color-accent);
+}
+.bar.short {
+  width: 14rpx;
+}
+.chevron {
+  width: 14rpx;
+  height: 14rpx;
+  flex-shrink: 0;
+  border-right: 3rpx solid var(--color-accent);
+  border-bottom: 3rpx solid var(--color-accent);
+  box-sizing: border-box;
+}
+.chevron.down {
+  transform: rotate(45deg);
+  margin-top: -6rpx;
+}
+.chevron.up {
+  transform: rotate(-135deg);
+  margin-top: 6rpx;
+}
+.capsule.on .chevron {
+  border-color: var(--color-primary-contrast);
 }
 .link {
   color: var(--color-accent);

@@ -265,13 +265,25 @@ export const localRepository = {
     return { ...c, outline: normalizeOutline(c.outline) }
   },
 
-  createChapter(novelId: string, title: string): Chapter {
+  /**
+   * 新建章节。不传 order 时接在最后一章之后；传入则使用该章序（不得与已有章重复）。
+   */
+  createChapter(novelId: string, title: string, order?: number): Chapter {
     const existing = this.listChapters(novelId)
+    const nextOrder =
+      order != null && Number.isFinite(order) && order >= 1
+        ? Math.floor(order)
+        : existing.length
+          ? existing[existing.length - 1].order + 1
+          : 1
+    if (existing.some((c) => c.order === nextOrder)) {
+      throw new Error(`第${nextOrder}章已存在`)
+    }
     const chapter: Chapter = {
       id: createId('c_'),
       novelId,
       title,
-      order: existing.length ? existing[existing.length - 1].order + 1 : 1,
+      order: nextOrder,
       content: '',
       outline: emptyOutline(),
       updatedAt: now(),

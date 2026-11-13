@@ -53,8 +53,15 @@
           :maxlength="4000"
           :disabled="revising"
         />
-        <view class="btn-primary" :class="{ disabled: revising }" @click="onRevise">
-          {{ revising ? '修订中…' : 'AI 修订' }}
+        <view class="row">
+          <PromptPolishBtn
+            v-model="userPrompt"
+            scene="outlineRevise"
+            :disabled="revising"
+          />
+          <view class="btn-primary" :class="{ disabled: revising }" @click="onRevise">
+            {{ revising ? '修订中…' : 'AI 修订' }}
+          </view>
         </view>
 
         <template v-if="aiResult">
@@ -113,6 +120,7 @@ import { useNovelStore } from '@/stores/novel'
 import { useSettingsStore } from '@/stores/settings'
 import type { Chapter } from '@/types'
 import SaveContentDone from '@/components/SaveContentDone.vue'
+import PromptPolishBtn from '@/components/PromptPolishBtn.vue'
 import { useLoreStore } from '@/stores/lore'
 
 const novel = useNovelStore()
@@ -142,6 +150,7 @@ const saveDone = reactive({
 
 onLoad((query) => {
   const id = query?.id as string
+  if (query?.tab === 'outline') tab.value = 'outline'
   const ch = localRepository.getChapter(id)
   if (!ch) {
     uni.showToast({ title: '章节不存在', icon: 'none' })
@@ -523,7 +532,8 @@ function saveOutline() {
   gap: 16rpx;
   margin-top: 16rpx;
 }
-.row > view {
+.row > view,
+.row :deep(.btn-ghost) {
   flex: 1;
   margin-bottom: 0;
 }

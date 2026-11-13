@@ -65,12 +65,24 @@ export const useNovelStore = defineStore('novel', () => {
     refresh()
   }
 
-  function createChapter(title: string) {
+  function createChapter(title: string, order?: number) {
     if (!currentNovelId.value) throw new Error('请先选择小说')
-    const c = localRepository.createChapter(currentNovelId.value, title)
+    const c = localRepository.createChapter(currentNovelId.value, title, order)
     chapters.value = localRepository.listChapters(currentNovelId.value)
     currentChapterId.value = c.id
     return c
+  }
+
+  /**
+   * 按章序取章；不存在则创建空章（标题默认「第N章」）。
+   */
+  function ensureChapterAtOrder(order: number, title?: string) {
+    if (!currentNovelId.value) throw new Error('请先选择小说')
+    const o = Math.floor(Number(order))
+    if (!Number.isFinite(o) || o < 1) throw new Error('章序无效')
+    const hit = chapters.value.find((c) => c.order === o)
+    if (hit) return hit
+    return createChapter(title?.trim() || `第${o}章`, o)
   }
 
   function selectChapter(id: string) {
@@ -125,6 +137,7 @@ export const useNovelStore = defineStore('novel', () => {
     updateNovelMeta,
     removeNovel,
     createChapter,
+    ensureChapterAtOrder,
     selectChapter,
     saveChapterContent,
     saveChapterOutline,

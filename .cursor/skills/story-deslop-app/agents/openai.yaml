@@ -1,0 +1,4 @@
+interface:
+  display_name: "网文去AI味"
+  short_description: "诊断并修订中文网文的 AI 腔、模板句、空泛描写与叙事失衡问题"
+  default_prompt: "使用 $story-deslop-app 诊断本章，先不改剧情、人物知识或伏笔顺序。"

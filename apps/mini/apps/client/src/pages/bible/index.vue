@@ -38,6 +38,11 @@
         :disabled="busy"
       />
       <view class="row">
+        <PromptPolishBtn
+          v-model="assistPrompt"
+          scene="bibleAssist"
+          :disabled="busy"
+        />
         <view class="btn-ghost" :class="{ disabled: busy }" @click="onAssist">
           {{ assisting ? '辅助中…' : 'AI 辅助撰写' }}
         </view>
@@ -74,6 +79,7 @@ import {
 } from '@/ai/novelBible'
 import { useNovelStore } from '@/stores/novel'
 import { useSettingsStore } from '@/stores/settings'
+import PromptPolishBtn from '@/components/PromptPolishBtn.vue'
 
 const novel = useNovelStore()
 const settings = useSettingsStore()
@@ -234,7 +240,8 @@ function persist(text: string) {
   gap: 16rpx;
   margin-top: 8rpx;
 }
-.row > view {
+.row > view,
+.row :deep(.btn-ghost) {
   flex: 1;
 }
 .disabled {

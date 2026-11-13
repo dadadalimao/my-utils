@@ -4,6 +4,7 @@ import {
   createId,
   getWritingMode,
   type LoreCard,
+  type LoreCardKind,
   type LoreCardOp,
   type LoreStateEntry,
   type Provider,
@@ -34,7 +35,7 @@ export const ITEM_CONTENT_TEMPLATE = `【基础】
 `
 
 export const CHARACTER_CONTENT_HINT =
-  '只写人物本体：身份、外貌体态、性格、天赋/能力、自身属性数值、当前状态。装备详情与他人完整设定勿写入。'
+  '只写人物本体：身份、外貌体态、性格、天赋/能力、自身属性数值、当前状态。用设定短句概括，勿整句摘抄正文。装备详情请建道具卡。'
 
 /** 人物卡 content 建议结构 */
 export const CHARACTER_CONTENT_TEMPLATE = `【身份】
@@ -71,61 +72,84 @@ export const LORE_STATE_TEMPLATE = `【当前处境】
 【备注】
 `
 
-const EXTRACT_SYSTEM_LIGHT = `你是小说设定整理助手。根据正文与已有设定卡，输出需要新建或更新的人物卡/道具卡。
+const EXTRACT_SYSTEM_LIGHT = `你是小说设定卡编辑。根据正文与已有卡，输出需要新建或更新的人物卡/道具卡。
 
-规则：
-1. 能对应到已有卡（同名或明显同一实体）则 action=update，并填写已有 id，在原设定上合并补充，不要无端删掉仍有效的旧信息。
-2. 新出现的重要人物/道具用 action=create；路过龙套可忽略。
-3. keywords 填便于检索的别名/称呼，含本名。
-4. 装备、法杖、袍服、道具等必须拆成独立的 kind=item 道具卡；不要把装备词条、特效、攻防数值写进人物卡。
-5. 只输出 JSON，不要 markdown 代码围栏以外的解释。格式：
-{"ops":[{"action":"create"|"update","id":"仅update必填","kind":"character"|"item","name":"…","keywords":["…"],"content":"完整设定","reason":"简述"}]}
-6. 与正文无关不要滥输出；无更新时返回 {"ops":[]}。
+【写法】
+- 设定卡给后续写作核对，写成短句分节条目，用设定语言概括。
+- 正文只作情报来源。对白、动作长句、场面描写、性爱过程一律改写成事实条目（身份、体态、能力数值、持有、关系一句）。
+- content 里只留概括后的设定，原文句子整句搬进卡里一律视为失败。
+- 仍有效的旧信息保留并与新事实合并。路过龙套可忽略。
 
-【人物卡 content——只记录本体】
-允许：身份、外貌体态、性格、自身天赋/能力、自身属性数值（等级、生命、魔力、力量等）、当前处境、与他人关系的极简一句。
-禁止塞进人物卡：
-- 某件装备的完整数值/特效/获取任务过程（应建道具卡；人物侧最多写「持有：xxx」）
-- 冗长的任务流水账、逐次性爱/交易过程
-- 其他角色的完整设定或对方属性
-若正文同时出现人物与其装备，请分别输出人物卡 + 道具卡（道具卡注明持有者）。
+【对应】
+- 已有卡（同名或同一实体）：action=update，填写已有 id。
+- 新出场的重要人物/道具：action=create。
+- keywords 含本名与常用称呼。
+- 装备、法杖、袍服等拆成独立 kind=item；人物卡最多写「持有：名称」。
 
-【道具卡 content】
-必须记录可核对的具体数据，不要只写外观。建议：基础、持有与来源、功能与数据（数值/条件/消耗）、状态记录、备注。`
+【人物卡】
+写成：身份、外貌体态、性格、自身能力与数值、当前处境、关系一句、持有名称。
+装备数值、特效、获取过程写进道具卡。他人完整设定留在对方卡上。
 
-const EXTRACT_SYSTEM_LONG = `你是小说设定整理助手（长篇时间线模式）。根据正文与已有设定卡，输出新建或更新操作。
+【道具卡】
+写成：类型与外观要点、持有者、功能数值、使用条件、消耗、限制。
 
-规则：
-1. 能对应到已有卡则 action=update 并填 id；新实体 action=create。
-2. 稳定信息（身份、外貌基调、固有能力设定）写入 core；随剧情变化的处境/等级/关系/持有写入 stateContent，并填 stateFromOrder=本章章序。
-3. content 字段仍必填：可把 core 与 state 拼成完整可读文本，或仅填 core（系统会拆分）。
-4. 可选字段：core、stateFromOrder、stateLabel、stateContent。
-5. 禁止把任务流水账塞进 core；装备细节用独立道具卡。
-6. 只输出 JSON：
-{"ops":[{"action":"create"|"update","id":"…","kind":"character"|"item","name":"…","keywords":["…"],"content":"…","core":"可选本体","stateFromOrder":章序,"stateLabel":"可选","stateContent":"可选阶段正文","reason":"…"}]}
-无更新返回 {"ops":[]}。`
+无更新返回 {"ops":[]}。只输出 JSON：
+{"ops":[{"action":"create"|"update","id":"仅update必填","kind":"character"|"item","name":"…","keywords":["…"],"content":"完整设定","reason":"简述"}]}`
 
-const UPDATE_ONE_SYSTEM_LIGHT = `你是小说设定修订助手。根据给定章节范围内的正文，更新「目标设定卡」。
+const EXTRACT_SYSTEM_LONG = `你是小说设定卡编辑（长篇时间线）。根据正文与已有卡，输出新建或更新操作。
 
-规则：
-1. 以目标卡现有内容为底，合并正文中出现的新信息；勿无端删除仍有效的旧信息。
-2. 若存在【用户额外要求】，在不违背本系统规则硬约束的前提下优先满足用户要求（例如精简、只保留本体、强调某字段）。
-3. 若 kind=item（道具）：必须补充/修正具体数据（效果数值、使用条件、消耗、持有者、状态变化等），禁止只写空泛外观形容。
-4. 若 kind=character（人物）：只更新人物本体信息（身份、外貌体态、性格、自身天赋、自身属性数值、当前状态、极简人际关系）。
-   - 禁止把装备词条、特效、攻防数值、任务流水、他人完整设定写进人物卡。
-   - 新装备只在人物卡用「持有：装备名」带过；装备细节应假设由道具卡维护，不要在人物 content 里展开。
-5. 可顺带更新 keywords（别名）。
-6. 只输出 JSON（不要代码围栏外解释）：
-{"name":"…","keywords":["…"],"content":"完整设定正文","reason":"简述本轮根据章节补充了什么"}`
+【写法】
+- 设定卡写成短句分节条目。正文只作情报来源，对白与场面描写改写成事实。
+- content/core/stateContent 只留概括后的设定，原文句子整句搬进卡里一律视为失败。
+- 稳定信息写入 core：身份、外貌基调、固有能力。
+- 可变信息写入 stateContent，并填 stateFromOrder=本章章序：处境、等级、关系、持有。
+- content 必填，可等于 core，或 core+state 拼写。
 
-const UPDATE_ONE_SYSTEM_LONG = `你是小说设定修订助手（长篇时间线）。根据章节正文更新目标卡。
+【对应】
+- 已有卡 update 并填 id；新实体 create。
+- 装备拆独立道具卡；人物卡最多「持有：名称」。
+- keywords 含本名与称呼。
 
-规则：
-1. 拆分输出：core=稳定本体；stateContent=本范围末章时点的可变状态；stateFromOrder=范围结束章序（可被用户覆盖）。
-2. 勿把成长流水账写进 core；勿删仍有效的旧本体信息。
-3. 人物禁止写入装备详情；道具须含可核对数值。
-4. 只输出 JSON：
+无更新返回 {"ops":[]}。只输出 JSON：
+{"ops":[{"action":"create"|"update","id":"…","kind":"character"|"item","name":"…","keywords":["…"],"content":"…","core":"可选本体","stateFromOrder":章序,"stateLabel":"可选","stateContent":"可选阶段正文","reason":"…"}]}`
+
+const UPDATE_ONE_SYSTEM_LIGHT = `你是小说设定卡修订助手。根据给定章节范围内的正文，更新「目标设定卡」。
+
+【写法】
+- 以现有卡为底，合并正文里的新事实，仍有效的旧信息保留。
+- 用设定语言重写全文：短句分节。对白、场面描写、一次性情节改写成事实条目。
+- 输出的 content 是概括后的设定，原文句子整句搬进卡里一律视为失败。
+- 若有【用户额外要求】，在上述写法之内优先满足（精简、只留本体、强调某字段）。
+
+【人物】身份、外貌体态、性格、自身能力与数值、当前状态、关系一句、持有名称。装备详情留在道具卡。
+【道具】效果数值、使用条件、消耗、持有者、状态变化。
+可更新 keywords。只输出 JSON：
+{"name":"…","keywords":["…"],"content":"完整设定正文","reason":"本轮补了什么"}`
+
+const UPDATE_ONE_SYSTEM_LONG = `你是小说设定卡修订助手（长篇时间线）。根据章节正文更新目标卡。
+
+【写法】
+- core=稳定本体（身份、外貌基调、固有能力）；stateContent=本范围末章时点的可变状态；stateFromOrder=范围结束章序。
+- 用设定语言重写。对白与场面描写改写成事实。core/stateContent 里原文整句搬入一律视为失败。
+- 仍有效的旧本体保留。人物卡最多「持有：名称」；道具含可核对数值。
+
+只输出 JSON：
 {"name":"…","keywords":["…"],"content":"可读全文（可等于 core+state）","core":"本体","stateFromOrder":数字,"stateLabel":"可选","stateContent":"阶段正文","reason":"…"}`
+
+const COMPACT_SYSTEM = `你是设定卡精简助手。把已有设定卡改写成更短、可核对的条目。
+
+【写法】
+- 保留仍有效的事实：名称、身份、体态、性格、能力数值、持有、关系结论。
+- 用设定语言重写，短句分节。对白、场面描写、任务流水、性爱过程复述、原文摘抄全部改写成一条事实或删掉。
+- 人物卡只留本体；装备详情留在道具卡，人物侧最多「持有：名称」。
+- 道具卡只留可核对数据：功能数值、条件、消耗、持有者。
+- 每张卡 action=update，id 必须与输入一致。本轮未改动的卡可省略。
+
+只输出 JSON：
+{"ops":[{"action":"update","id":"…","kind":"character"|"item","name":"…","keywords":["…"],"content":"精简后全文","core":"精简后本体（可与 content 相同）","reason":"精简了什么"}]}
+无改动返回 {"ops":[]}。`
+
+const COMPACT_BATCH_SIZE = 5
 
 export interface ExtractLoreResult {
   ops: LoreCardOp[]
@@ -289,6 +313,7 @@ export function buildChapterRangeText(
 
 /**
  * 根据章节正文抽取设定卡操作列表（不落库）。
+ * @param options.kind 传入则本轮只新建/更新该类型
  */
 export async function extractLoreOpsFromChapter(options: {
   novelId: string
@@ -297,6 +322,7 @@ export async function extractLoreOpsFromChapter(options: {
   apiKey: string
   model: string
   maxContentChars?: number
+  kind?: LoreCardKind
 }): Promise<ExtractLoreResult> {
   const { novelId, chapterId, provider, apiKey, model } = options
   const maxChars = options.maxContentChars ?? 8000
@@ -309,11 +335,18 @@ export async function extractLoreOpsFromChapter(options: {
   if (truncated) body = body.slice(0, maxChars)
 
   const isLong = getWritingMode(localRepository.getNovel(novelId)?.meta) === 'long'
+  const kindHint =
+    options.kind === 'character'
+      ? '本轮只输出人物卡（kind=character）。道具卡本轮忽略。'
+      : options.kind === 'item'
+        ? '本轮只输出道具卡（kind=item）。人物卡本轮忽略。'
+        : '人物与道具都可输出。'
 
   const user = [
     `章节：第${chapter.order}章 ${chapter.title}`,
     truncated ? `（正文已截断至 ${maxChars} 字）` : '',
     isLong ? `本章章序（写入 stateFromOrder）：${chapter.order}` : '',
+    kindHint,
     '',
     '【本章正文】',
     body || '（空）',
@@ -340,7 +373,7 @@ export async function extractLoreOpsFromChapter(options: {
         return { ...op, stateFromOrder: chapter.order }
       }
       return op
-    })
+    }).filter((op) => !options.kind || op.kind === options.kind)
     return { ops, raw }
   } catch {
     throw new Error('AI 返回无法解析为设定卡 JSON')
@@ -391,8 +424,8 @@ export async function updateLoreCardFromChapterRange(options: {
     '',
     userPrompt ? `【用户额外要求】\n${userPrompt}\n` : '',
     card.kind === 'item'
-      ? '请按道具卡数据结构输出（含功能与数据、持有等）。'
-      : '请只输出人物本体/阶段：勿写入装备词条/特效/任务流水；装备最多「持有：名称」。',
+      ? '请按道具卡数据结构输出（功能与数据、持有）。用设定语言概括，原文句子整句搬入视为失败。'
+      : '请只输出人物本体/阶段：装备最多「持有：名称」。用设定语言概括，原文句子整句搬入视为失败。',
   ]
     .filter(Boolean)
     .join('\n')
@@ -416,6 +449,100 @@ export async function updateLoreCardFromChapterRange(options: {
   } catch {
     throw new Error('AI 返回无法解析为设定更新 JSON')
   }
+}
+
+function formatCardsForCompact(cards: LoreCard[]): string {
+  return cards
+    .map((c) => {
+      const states = (c.states || [])
+        .map((s) => `  阶段@第${s.fromOrder}章${s.label ? `（${s.label}）` : ''}：${s.content}`)
+        .join('\n')
+      return [
+        `id=${c.id} kind=${c.kind} name=${c.name}`,
+        `keywords=[${(c.keywords || []).join('、')}]`,
+        `core:\n${c.core || c.content || '（空）'}`,
+        states ? `states:\n${states}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    })
+    .join('\n\n---\n\n')
+}
+
+/**
+ * 按类型精简已有设定卡（去掉原文摘抄与流水账，不落库）。
+ * 长篇只改 core，时间线阶段原样保留。
+ */
+export async function compactLoreCards(options: {
+  novelId: string
+  kind: LoreCardKind
+  provider: Provider
+  apiKey: string
+  model: string
+}): Promise<ExtractLoreResult> {
+  const { novelId, kind, provider, apiKey, model } = options
+  const cards = localRepository.listLoreCards(novelId).filter((c) => c.kind === kind)
+  if (!cards.length) {
+    throw new Error(kind === 'character' ? '暂无人物卡' : '暂无道具卡')
+  }
+
+  const kindLabel = kind === 'character' ? '人物卡' : '道具卡'
+  const allOps: LoreCardOp[] = []
+  const rawParts: string[] = []
+  const idSet = new Set(cards.map((c) => c.id))
+
+  for (let i = 0; i < cards.length; i += COMPACT_BATCH_SIZE) {
+    const batch = cards.slice(i, i + COMPACT_BATCH_SIZE)
+    const user = [
+      `本轮只精简 kind=${kind} 的${kindLabel}。`,
+      '每张卡 action=update，id 必须与下面一致。不要输出 stateContent（时间线保持原样）。',
+      '',
+      '【待精简设定卡】',
+      formatCardsForCompact(batch),
+    ].join('\n')
+
+    const raw = await chatCompletion({
+      provider,
+      apiKey,
+      model,
+      thinkingEffort: 'off',
+      timeoutMs: 120000,
+      messages: [
+        { role: 'system', content: COMPACT_SYSTEM },
+        { role: 'user', content: user },
+      ],
+    })
+    rawParts.push(raw)
+
+    let ops: LoreCardOp[]
+    try {
+      ops = parseOps(raw)
+    } catch {
+      throw new Error('AI 返回无法解析为精简 JSON')
+    }
+
+    for (const op of ops) {
+      if (op.action !== 'update' || !op.id || !idSet.has(op.id)) continue
+      if (op.kind !== kind) continue
+      allOps.push({
+        ...op,
+        action: 'update',
+        kind,
+        stateContent: undefined,
+        stateFromOrder: undefined,
+        stateLabel: undefined,
+      })
+    }
+  }
+
+  const seen = new Set<string>()
+  const deduped = allOps.filter((op) => {
+    if (!op.id || seen.has(op.id)) return false
+    seen.add(op.id)
+    return true
+  })
+
+  return { ops: deduped, raw: rawParts.join('\n\n') }
 }
 
 /** 将确认后的 ops 写入本地 */

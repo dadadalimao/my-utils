@@ -138,7 +138,8 @@ export async function reviseOutlineByPrompt(options: {
   }
 }
 
-function parseOutlineJson(raw: string): {
+/** 从模型文本中抽出一章结构化大纲（容忍围栏/前后废话） */
+export function parseOutlineJson(raw: string): {
   summary: string
   beats: string[]
   characterStates: string[]

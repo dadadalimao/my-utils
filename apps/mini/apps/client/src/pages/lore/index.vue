@@ -11,6 +11,11 @@
         根据本章更新
       </view>
     </view>
+    <view class="toolbar">
+      <view class="btn-ghost" :class="{ disabled: !filtered.length }" @click="onCompact">
+        一键精简{{ tab === 'character' ? '人物卡' : '道具卡' }}
+      </view>
+    </view>
     <!-- 展示具体章节，点击可切换分析目标 -->
     <picker
       v-if="chapterLabels.length"
@@ -24,6 +29,7 @@
       </view>
     </picker>
     <view v-else class="chapter-pick muted">暂无章节，请先创作</view>
+    <view class="muted hint">更新与精简都只处理当前页的{{ tab === 'character' ? '人物' : '道具' }}卡。</view>
 
     <view v-for="c in filtered" :key="c.id" class="card" @click="openEdit(c.id)">
       <view class="name">{{ c.name }}</view>
@@ -119,13 +125,40 @@ async function onExtractCurrent() {
   }
   try {
     uni.showLoading({ title: '分析设定中', mask: true })
-    await lore.startExtractFromChapter(extractChapterId.value)
+    await lore.startExtractFromChapter(extractChapterId.value, tab.value)
     uni.hideLoading()
     uni.navigateTo({ url: '/pages/lore/review' })
   } catch (e) {
     uni.hideLoading()
     uni.showToast({ title: (e as Error).message || '分析失败', icon: 'none' })
   }
+}
+
+async function onCompact() {
+  if (!filtered.value.length) {
+    uni.showToast({
+      title: tab.value === 'character' ? '暂无人物卡' : '暂无道具卡',
+      icon: 'none',
+    })
+    return
+  }
+  const kindLabel = tab.value === 'character' ? '人物卡' : '道具卡'
+  uni.showModal({
+    title: '一键精简',
+    content: `将精简当前页全部${kindLabel}：去掉原文摘抄与流水账，改成短句设定。确认后可预览再保存。`,
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        uni.showLoading({ title: '精简中', mask: true })
+        await lore.startCompactByKind(tab.value)
+        uni.hideLoading()
+        uni.navigateTo({ url: '/pages/lore/review' })
+      } catch (e) {
+        uni.hideLoading()
+        uni.showToast({ title: (e as Error).message || '精简失败', icon: 'none' })
+      }
+    },
+  })
 }
 </script>
 
@@ -184,6 +217,10 @@ async function onExtractCurrent() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.hint {
+  margin: -8rpx 0 16rpx;
+  line-height: 1.5;
 }
 .name {
   font-weight: 600;

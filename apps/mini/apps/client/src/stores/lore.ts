@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { applyLoreOps, extractLoreOpsFromChapter } from '@/ai/loreExtract'
+import { applyLoreOps, compactLoreCards, extractLoreOpsFromChapter } from '@/ai/loreExtract'
 import { localRepository } from '@/repository/localRepository'
 import { storageGet, storageRemove, storageSet } from '@/repository/storage'
 import type { LoreCard, LoreCardKind, LoreCardOp, LoreStateEntry } from '@/types'
@@ -62,9 +62,10 @@ export const useLoreStore = defineStore('lore', () => {
   }
 
   /**
-   * 根据章节正文抽取设定卡，写入待确认缓存并跳转确认页。
+   * 根据章节正文抽取设定卡，写入待确认缓存。
+   * @param kind 传入则只处理人物或道具
    */
-  async function startExtractFromChapter(chapterId: string) {
+  async function startExtractFromChapter(chapterId: string, kind?: LoreCardKind) {
     const novel = useNovelStore()
     const settings = useSettingsStore()
     if (!novel.currentNovelId) throw new Error('请先选择小说')
@@ -78,16 +79,56 @@ export const useLoreStore = defineStore('lore', () => {
       provider,
       apiKey: settings.apiKeyFor(provider),
       model: settings.settings.defaultModel,
+      kind,
     })
 
     if (!ops.length) {
-      throw new Error('未识别到可更新的人物/道具')
+      throw new Error(
+        kind === 'character'
+          ? '未识别到可更新的人物卡'
+          : kind === 'item'
+            ? '未识别到可更新的道具卡'
+            : '未识别到可更新的人物/道具',
+      )
     }
 
+    const kindSuffix =
+      kind === 'character' ? ' · 仅人物' : kind === 'item' ? ' · 仅道具' : ''
     setPending({
       novelId: novel.currentNovelId,
       chapterId,
-      chapterTitle: `第${ch.order}章 ${ch.title}`,
+      chapterTitle: `第${ch.order}章 ${ch.title}${kindSuffix}`,
+      ops,
+    })
+    return ops.length
+  }
+
+  /**
+   * 一键精简指定类型的已有设定卡，写入待确认缓存。
+   */
+  async function startCompactByKind(kind: LoreCardKind) {
+    const novel = useNovelStore()
+    const settings = useSettingsStore()
+    if (!novel.currentNovelId) throw new Error('请先选择小说')
+
+    const provider = settings.settings.defaultProvider
+    const { ops } = await compactLoreCards({
+      novelId: novel.currentNovelId,
+      kind,
+      provider,
+      apiKey: settings.apiKeyFor(provider),
+      model: settings.settings.defaultModel,
+    })
+
+    if (!ops.length) {
+      throw new Error('这些卡已经够精简，没有改动')
+    }
+
+    const kindLabel = kind === 'character' ? '人物卡' : '道具卡'
+    setPending({
+      novelId: novel.currentNovelId,
+      chapterId: '',
+      chapterTitle: `一键精简 · ${kindLabel}`,
       ops,
     })
     return ops.length
@@ -110,6 +151,7 @@ export const useLoreStore = defineStore('lore', () => {
     getPending,
     setPending,
     startExtractFromChapter,
+    startCompactByKind,
     confirmPending,
   }
 })
