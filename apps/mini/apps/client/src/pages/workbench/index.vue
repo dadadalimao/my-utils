@@ -116,7 +116,7 @@
 
     <view class="composer">
       <textarea
-        v-model="input"
+        v-model="chat.composerInput"
         class="input ai-prompt-input"
         :placeholder="composerPlaceholder"
         :disabled="chat.loading"
@@ -124,14 +124,25 @@
         :auto-height="false"
         show-confirm-bar
       />
-      <view class="input-meta">{{ input.length }}/20000</view>
+      <view class="input-meta">{{ chat.composerInput.length }}/20000</view>
       <view class="actions">
         <view class="btn-primary" :class="{ disabled: chat.loading }" @click="onSend">
           {{ chat.loading ? '生成中…' : chat.reviseMode ? '修订发送' : '发送' }}
         </view>
+        <PromptPolishBtn
+          v-model="chat.composerInput"
+          :scene="composerPolishScene"
+          :disabled="chat.loading"
+        />
         <view class="btn-ghost" @click="onSaveContent">保存正文</view>
-        <view class="btn-ghost" @click="onSaveOutline">保存大纲</view>
-        <view class="btn-ghost" @click="chat.clearMessages()">清空</view>
+        <view
+          class="btn-ghost"
+          :class="{ disabled: chat.loading || !chat.canVulgarize }"
+          @click="onVulgarize"
+        >
+          一键粗俗
+        </view>
+        <view class="btn-ghost" @click="moreOpen = true">更多</view>
       </view>
     </view>
 
@@ -231,6 +242,16 @@
         <view class="hint muted">发送内容命中资料关键词时，自动把对应参考资料塞进提示词。</view>
 
         <view class="label row-between">
+          <text>伪娘需求</text>
+          <switch
+            :checked="chat.injectOtokonoko"
+            @change="onInjectOtokonokoChange"
+            :color="themeControlColor"
+          />
+        </view>
+        <view class="hint muted">勾选后把伪娘角色创作写作需求注入提示词，可与 R18 模板叠用。</view>
+
+        <view class="label row-between">
           <text>联网搜索</text>
           <switch
             :checked="chat.webSearch"
@@ -283,6 +304,18 @@
       </view>
     </view>
 
+    <!-- 低频操作：保存大纲 / 清空 -->
+    <view v-if="moreOpen" class="mask" @click="moreOpen = false">
+      <view class="sheet" @click.stop>
+        <view class="sheet-title">更多操作</view>
+        <view class="more-list">
+          <view class="btn-ghost" @click="onMoreSaveOutline">保存大纲</view>
+          <view class="btn-ghost" @click="onMoreClear">清空</view>
+        </view>
+        <view class="btn-ghost sheet-close" @click="moreOpen = false">取消</view>
+      </view>
+    </view>
+
     <!-- 编辑建议弹框（独立会话） -->
     <view v-if="adviceOpen" class="mask advice-mask" @click="onAdviceMask">
       <view class="sheet advice-sheet" @click.stop>
@@ -330,7 +363,7 @@
 
         <view class="composer advice-composer">
           <textarea
-            v-model="adviceInput"
+            v-model="chat.adviceComposerInput"
             class="input ai-prompt-input"
             placeholder="向编辑提问…"
             :disabled="chat.loading"
@@ -338,7 +371,7 @@
             :auto-height="false"
             show-confirm-bar
           />
-          <view class="input-meta">{{ adviceInput.length }}/20000</view>
+          <view class="input-meta">{{ chat.adviceComposerInput.length }}/20000</view>
           <view class="actions">
             <view
               class="btn-primary"
@@ -347,6 +380,11 @@
             >
               {{ chat.loading ? '生成中…' : '发送' }}
             </view>
+            <PromptPolishBtn
+              v-model="chat.adviceComposerInput"
+              scene="advice"
+              :disabled="chat.loading"
+            />
             <view class="btn-ghost" @click="chat.clearAdviceMessages()">清空</view>
             <view
               v-if="chat.loading"
@@ -375,8 +413,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onHide, onShow } from '@dcloudio/uni-app'
 import type { ChatMode, ThinkingEffort } from '@/types'
+import type { PromptPolishScene } from '@/ai/polishPrompt'
 import { extractChapterBody } from '@/ai/chapterFence'
 import {
   buildWritingProgress,
@@ -387,6 +426,7 @@ import { useChatStore } from '@/stores/chat'
 import { useNovelStore } from '@/stores/novel'
 import { useSettingsStore } from '@/stores/settings'
 import SaveContentDone from '@/components/SaveContentDone.vue'
+import PromptPolishBtn from '@/components/PromptPolishBtn.vue'
 import { useLoreStore } from '@/stores/lore'
 
 const themeControlColor = THEME_CONTROL_COLOR
@@ -398,11 +438,10 @@ const lore = useLoreStore()
 const isDeepseekProvider = computed(
   () => settings.settings.defaultProvider === 'deepseek',
 )
-const input = ref('')
-const adviceInput = ref('')
 const fromOrder = ref(1)
 const toOrder = ref(3)
 const optionsOpen = ref(false)
+const moreOpen = ref(false)
 const modeSheetOpen = ref(false)
 const adviceOpen = ref(false)
 const logOpen = ref(false)
@@ -473,6 +512,13 @@ const composerPlaceholder = computed(() => {
   if (!chat.reviseMode) return '描述你的需求…'
   if (chat.draftInfo.source === 'none') return '暂无底稿，将按新创作发送。也可先生成/保存正文…'
   return '说明要改哪里，例如：第三段再慢一点、删掉旁白…'
+})
+
+const composerPolishScene = computed<PromptPolishScene>(() => {
+  // 与发送一致：修订开着但没底稿时按新创作，避免新章空正文被润成「改原稿」
+  if (chat.mode === 'outline') return 'outline'
+  if (chat.reviseMode && chat.draftInfo.source !== 'none') return 'revise'
+  return 'chapter'
 })
 
 function goChapters() {
@@ -563,6 +609,9 @@ onShow(() => {
   settings.reload()
   if (chat.mode === 'advice') chat.setMode('chapter')
 })
+onHide(() => {
+  chat.flushSession()
+})
 
 function onTplChange(e: { detail: { value: string } }) {
   const list = chat.templates.filter((t) => t.mode === chat.mode)
@@ -606,6 +655,10 @@ function onInjectLoreChange(e: { detail: { value: boolean } }) {
 
 function onInjectLibraryChange(e: { detail: { value: boolean } }) {
   chat.setInjectLibrary(e.detail.value)
+}
+
+function onInjectOtokonokoChange(e: { detail: { value: boolean } }) {
+  chat.setInjectOtokonoko(e.detail.value)
 }
 
 function onWebSearchChange(e: { detail: { value: boolean } }) {
@@ -683,7 +736,8 @@ function onUseDraft(messageId: string) {
 
 function onEditResend(messageId: string) {
   try {
-    input.value = chat.prepareEditResend(messageId)
+    chat.composerInput = chat.prepareEditResend(messageId)
+    chat.flushSession()
     uni.showToast({ title: '已填入，可编辑后发送', icon: 'none' })
   } catch (e) {
     uni.showToast({ title: (e as Error).message, icon: 'none' })
@@ -691,12 +745,13 @@ function onEditResend(messageId: string) {
 }
 
 async function onSend() {
-  const text = input.value.trim()
+  const text = chat.composerInput.trim()
   if (!text || chat.loading) return
   logOpen.value = true
   try {
     await chat.send(text)
-    input.value = ''
+    chat.composerInput = ''
+    chat.flushSession()
   } catch (e) {
     const msg = (e as Error).message || '发送失败'
     if (msg !== '已停止') {
@@ -706,12 +761,13 @@ async function onSend() {
 }
 
 async function onAdviceSend() {
-  const text = adviceInput.value.trim()
+  const text = chat.adviceComposerInput.trim()
   if (!text || chat.loading) return
   logOpen.value = true
   try {
     await chat.send(text, { channel: 'advice' })
-    adviceInput.value = ''
+    chat.adviceComposerInput = ''
+    chat.flushSession()
   } catch (e) {
     const msg = (e as Error).message || '发送失败'
     if (msg !== '已停止') {
@@ -722,7 +778,8 @@ async function onAdviceSend() {
 
 function onAdviceEditResend(messageId: string) {
   try {
-    adviceInput.value = chat.prepareAdviceEditResend(messageId)
+    chat.adviceComposerInput = chat.prepareAdviceEditResend(messageId)
+    chat.flushSession()
     uni.showToast({ title: '已填入，可编辑后发送', icon: 'none' })
   } catch (e) {
     uni.showToast({ title: (e as Error).message, icon: 'none' })
@@ -770,6 +827,23 @@ function onCopyLog() {
   })
 }
 
+async function onVulgarize() {
+  if (chat.loading) return
+  if (!chat.canVulgarize) {
+    uni.showToast({ title: '先生成或打开有正文的章节', icon: 'none' })
+    return
+  }
+  logOpen.value = true
+  try {
+    await chat.vulgarizeDraft()
+  } catch (e) {
+    const msg = (e as Error).message || '改写失败'
+    if (msg !== '已停止') {
+      uni.showToast({ title: msg, icon: 'none' })
+    }
+  }
+}
+
 async function onSaveContent() {
   try {
     uni.showLoading({ title: '保存正文中', mask: true })
@@ -792,6 +866,18 @@ function onSaveOutline() {
     uni.hideLoading()
     uni.showToast({ title: (e as Error).message, icon: 'none' })
   }
+}
+
+/** 从更多面板保存最近回复为大纲 */
+function onMoreSaveOutline() {
+  moreOpen.value = false
+  onSaveOutline()
+}
+
+/** 从更多面板清空当前会话 */
+function onMoreClear() {
+  moreOpen.value = false
+  chat.clearMessages()
 }
 </script>
 
@@ -859,36 +945,42 @@ function onSaveOutline() {
   align-items: center;
   margin-bottom: 12rpx;
 }
+/* 与右侧 icon-btn 同高（72rpx），两行文案收进按钮高度里 */
 .mode-trigger {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12rpx;
+  height: 72rpx;
   background: var(--color-surface);
   border-radius: 12rpx;
-  padding: 16rpx 20rpx;
+  padding: 0 16rpx;
   border: 1px solid var(--color-accent);
   box-sizing: border-box;
 }
 .mode-trigger-main {
   display: flex;
   flex-direction: column;
-  gap: 4rpx;
+  justify-content: center;
+  gap: 0;
   min-width: 0;
 }
 .mode-trigger-label {
-  font-size: 20rpx;
+  font-size: 18rpx;
+  line-height: 1.1;
   color: var(--color-text-muted);
 }
 .mode-trigger-value {
-  font-size: 30rpx;
+  font-size: 26rpx;
+  line-height: 1.15;
   font-weight: 600;
   color: var(--color-accent);
 }
 .mode-chevron {
   flex-shrink: 0;
-  font-size: 24rpx;
+  font-size: 22rpx;
+  line-height: 1;
   color: var(--color-accent);
 }
 .mode-option {
@@ -934,6 +1026,7 @@ function onSaveOutline() {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 .log-btn {
   border: 1px solid var(--color-accent);
@@ -1239,11 +1332,31 @@ function onSaveOutline() {
   gap: 12rpx;
   margin-top: 12rpx;
 }
-.actions > view {
-  flex: 1;
-  min-width: 140rpx;
+/* 一行 3 个。润色组件默认 width:100% 会独占一行，这里收成一格；第 4 个换行后仍占一格 */
+.actions > .btn-primary,
+.actions > .btn-ghost,
+.actions :deep(.polish-pair) {
+  flex: 0 0 calc((100% - 24rpx) / 3);
+  width: calc((100% - 24rpx) / 3);
+  max-width: calc((100% - 24rpx) / 3);
+  min-width: 0;
   font-size: 24rpx;
-  padding: 16rpx;
+  box-sizing: border-box;
+}
+.actions > .btn-primary,
+.actions > .btn-ghost,
+.actions :deep(.polish-pair .btn-ghost) {
+  padding: 16rpx 8rpx;
+  white-space: nowrap;
+}
+.more-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+.more-list .btn-ghost {
+  width: 100%;
+  box-sizing: border-box;
 }
 .disabled {
   opacity: 0.6;

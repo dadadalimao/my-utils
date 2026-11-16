@@ -86,8 +86,15 @@
         placeholder="额外要求，例如：只保留本体属性、去掉装备词条…"
         :maxlength="4000"
       />
-      <view class="btn-primary" :class="{ disabled: analyzing }" @click="onAnalyze">
-        {{ analyzing ? '分析中…' : 'AI 分析并更新' }}
+      <view class="row">
+        <PromptPolishBtn
+          v-model="userPrompt"
+          scene="loreUpdate"
+          :disabled="analyzing"
+        />
+        <view class="btn-primary" :class="{ disabled: analyzing }" @click="onAnalyze">
+          {{ analyzing ? '分析中…' : 'AI 分析并更新' }}
+        </view>
       </view>
     </view>
     <view v-else class="muted tip">先保存设定卡后，才能按章节范围做 AI 更新。</view>
@@ -150,6 +157,7 @@ import { localRepository } from '@/repository/localRepository'
 import { useLoreStore } from '@/stores/lore'
 import { useNovelStore } from '@/stores/novel'
 import { useSettingsStore } from '@/stores/settings'
+import PromptPolishBtn from '@/components/PromptPolishBtn.vue'
 
 const lore = useLoreStore()
 const novel = useNovelStore()
@@ -539,7 +547,8 @@ function applyPreview() {
   gap: 16rpx;
   margin-top: 28rpx;
 }
-.row > view {
+.row > view,
+.row :deep(.btn-ghost) {
   flex: 1;
 }
 .danger {

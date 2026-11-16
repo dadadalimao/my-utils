@@ -25,6 +25,12 @@
       }
     },
     {
+      "path": "pages/reader/index",
+      "style": {
+        "navigationBarTitleText": "阅读"
+      }
+    },
+    {
       "path": "pages/lore/index",
       "style": {
         "navigationBarTitleText": "设定卡"
