@@ -80,6 +80,38 @@ function Test-BranchNeedsPush {
     }
 }
 
+function Invoke-GitWithNetworkRetry {
+    param(
+        [string[]]$GitArguments
+    )
+
+    # Git 会把正常进度也写入 stderr，按退出码和输出内容判断是否重试。
+    $ErrorActionPreference = "Continue"
+    $PSNativeCommandUseErrorActionPreference = $false
+    $networkErrorPattern = '(?i)SSL_ERROR_SYSCALL|SSL connection timeout|Failed to connect|Could not resolve (host|proxy)|Connection (reset|timed out|refused|closed)|Operation timed out|Operation too slow|Recv failure|Send failure|Empty reply from server|remote end hung up unexpectedly|early EOF|HTTP(?:/\S+)?\s+(?:error:\s*)?5\d\d|requested URL returned error:\s*5\d\d'
+
+    for ($attempt = 0; $attempt -le 2; $attempt++) {
+        Write-Host "[命令] git $($GitArguments -join ' ')" -ForegroundColor DarkGray
+        $outputLines = [System.Collections.Generic.List[string]]::new()
+        & git @GitArguments 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            $outputLines.Add($line)
+            Write-Host $line
+        }
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            return $true
+        }
+
+        if ($attempt -eq 2 -or ($outputLines -join "`n") -notmatch $networkErrorPattern) {
+            return $false
+        }
+
+        Write-Host "检测到网络错误，等待 3 秒后重试（第 $($attempt + 1)/2 次）..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 3
+    }
+}
+
 Initialize-GitUtf8Environment
 
 Write-Host "===========================================" -ForegroundColor Cyan
@@ -205,9 +237,7 @@ try {
         if ($pushStatus.NeedsPush) {
             Write-Host "当前分支 $CURRENT_BRANCH 未完全推送到 $REMOTE_NAME ($($pushStatus.Reason))，正在推送..." -ForegroundColor Yellow
             # 使用 HEAD 推送，由 Git 内部解析当前分支名，避免中文分支名在命令行传参时乱码
-            Write-Host "[命令] git push -u $REMOTE_NAME HEAD" -ForegroundColor DarkGray
-            git push -u $REMOTE_NAME HEAD
-            if ($LASTEXITCODE -ne 0) {
+            if (-not (Invoke-GitWithNetworkRetry -GitArguments @('push', '-u', $REMOTE_NAME, 'HEAD'))) {
                 Write-Host "错误: 推送当前分支失败" -ForegroundColor Red
                 exit 1
             }
@@ -300,9 +330,7 @@ try {
 
     # 拉取 test 分支的最新代码
     Write-Host "正在拉取 test 分支的最新代码..." -ForegroundColor Cyan
-    Write-Host "[命令] git pull $REMOTE_NAME test" -ForegroundColor DarkGray
-    git pull $REMOTE_NAME test
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Invoke-GitWithNetworkRetry -GitArguments @('pull', $REMOTE_NAME, 'test'))) {
         Write-Host "错误: 拉取 test 分支失败" -ForegroundColor Red
         Write-Host "[调试] 停留在 test 分支以便手动处理" -ForegroundColor Yellow
         Write-Host "您现在可以手动解决此问题或重试" -ForegroundColor Yellow
@@ -337,9 +365,7 @@ try {
 
     # 推送 test 分支
     Write-Host "正在推送 test 分支到远程..." -ForegroundColor Cyan
-    Write-Host "[命令] git push $REMOTE_NAME test" -ForegroundColor DarkGray
-    git push $REMOTE_NAME test
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Invoke-GitWithNetworkRetry -GitArguments @('push', $REMOTE_NAME, 'test'))) {
         Write-Host "错误: 推送 test 分支失败" -ForegroundColor Red
         Write-Host "[调试] 停留在 test 分支以便手动处理" -ForegroundColor Yellow
         Write-Host "您现在可以手动解决推送问题或重试" -ForegroundColor Yellow
