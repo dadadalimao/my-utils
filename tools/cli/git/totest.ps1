@@ -34,6 +34,8 @@ function Get-CurrentGitBranch {
         return $null
     }
 
+    # .NET 相对路径使用进程目录，需先按 PowerShell 当前目录解析为绝对路径。
+    $headPath = (Resolve-Path -LiteralPath $headPath).ProviderPath
     $headContent = [System.IO.File]::ReadAllText($headPath).Trim()
     if ($headContent -match '^ref:\s*refs/heads/(.+)$') {
         return $matches[1].Trim()
