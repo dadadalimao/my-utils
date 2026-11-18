@@ -7,8 +7,8 @@
 用角区残差选干净底板，然后全程整块覆盖左上+右下 ROI（不做按帧开关）。
 
 示例:
-  python .cursor/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "video.mp4"
-  python .cursor/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "video.mp4" -o "video_clean.mp4"
+  python .agents/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "video.mp4"
+  python .agents/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "video.mp4" -o "video_clean.mp4"
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@ from pathlib import Path
 # tools/cli -> 仓库根目录
 _SCRIPT = (
     Path(__file__).resolve().parent.parent.parent
-    / ".cursor"
+    / ".agents"
     / "skills"
     / "id-photo-cutout"
     / "scripts"

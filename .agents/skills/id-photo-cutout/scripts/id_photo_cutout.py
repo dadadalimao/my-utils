@@ -7,14 +7,14 @@
 尺寸无硬性规范时保证最短边不低于 --min-side。
 
 示例:
-  python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "photo.png"
-  python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "photo.png" --bg transparent
-  python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "photo.png" --bg white -o out.png
-  python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py a.png b.png --bg "#RRGGBB"
+  python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "photo.png"
+  python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "photo.png" --bg transparent
+  python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "photo.png" --bg white -o out.png
+  python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py a.png b.png --bg "#RRGGBB"
   # 绿幕溢色：半透明边缘去绿
-  python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "photo.png" --degreen
+  python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "photo.png" --degreen
   # 已有透明 PNG 只去绿（不重跑抠图）
-  python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "cutout.png" --degreen-only
+  python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "cutout.png" --degreen-only
 """
 
 from __future__ import annotations

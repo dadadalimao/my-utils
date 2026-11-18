@@ -32,24 +32,24 @@ python -m pip install rembg onnxruntime pillow opencv-python-headless numpy --us
 
 ```powershell
 # 默认：透明底 + 证件照裁切，最短边 ≥ 600
-python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png"
+python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png"
 
 # 纯色底
-python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --bg white
-python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --bg blue
-python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --bg "#438EDB"
+python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --bg white
+python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --bg blue
+python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --bg "#438EDB"
 
 # 批量；-o 为目录
-python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py a.png b.png --bg transparent -o ".temp"
+python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py a.png b.png --bg transparent -o ".temp"
 
 # 只抠图不裁头肩
-python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --no-crop
+python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --no-crop
 
 # 绿幕溢色：发丝边缘去绿（抠图时）
-python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --degreen
+python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "输入.png" --degreen
 
 # 已有透明 PNG 只去绿（不重跑 rembg）
-python .cursor/skills/id-photo-cutout/scripts/id_photo_cutout.py "xxx_cutout.png" --degreen-only
+python .agents/skills/id-photo-cutout/scripts/id_photo_cutout.py "xxx_cutout.png" --degreen-only
 ```
 
 仓库快捷入口：`tools/cli/id_photo_cutout.py`

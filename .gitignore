@@ -28,9 +28,9 @@ tools/node/.yarn/
 AutoHotkey
 wxminiprogram
 # Office skills 本地依赖
-.cursor/office/node_modules/
-.cursor/office/.venv/
-.cursor/office/临时文件
+.agents/office/node_modules/
+.agents/office/.venv/
+.agents/office/临时文件
 
 # mini（AI 写小说）本地依赖与构建产物、密钥、数据库
 apps/mini/apps/**/node_modules/
@@ -42,3 +42,7 @@ apps/mini/apps/server/prisma/*.db
 apps/mini/apps/server/prisma/*.db-journal
 apps/mini/apps/**/*.log
 apps/mini/apps/client/project.private.config.json
+
+# 小说清洗等临时文件（只保留占位）
+temp/*
+!temp/.gitkeep

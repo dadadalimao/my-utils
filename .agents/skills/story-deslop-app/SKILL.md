@@ -22,7 +22,7 @@ metadata:
 2. 只要准备依据应用提示词改写，先运行：
 
    ```powershell
-   node .cursor/skills/story-deslop-app/scripts/check-prompt-sync.cjs
+   node .agents/skills/story-deslop-app/scripts/check-prompt-sync.cjs
    ```
 
    退出码非 0 时，不要使用任何一份模板改写正文。向用户报告不一致的常量，修复后

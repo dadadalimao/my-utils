@@ -1,8 +1,8 @@
 # Office Skills 依赖安装
 
-本目录为 Cursor Agent Office skills（docx / pptx / xlsx / pdf）的**统一依赖**，源自社区版 [tfriedel/claude-office-skills](https://github.com/tfriedel/claude-office-skills)，并补充了 `docx`、`pandas`。
+本目录为 Agent Office skills（docx / pptx / xlsx / pdf）的**统一依赖**，源自社区版 [tfriedel/claude-office-skills](https://github.com/tfriedel/claude-office-skills)，并补充了 `docx`、`pandas`。
 
-对应 skill 目录：`.cursor/skills/{docx,pptx,xlsx,pdf}/`
+对应 skill 目录：`.agents/skills/{docx,pptx,xlsx,pdf}/`
 
 ## LibreOffice 会装吗？
 
@@ -38,7 +38,7 @@ pandoc --version
 - （可选但推荐）已安装并配置好 PATH 的 LibreOffice、Poppler、Pandoc
 
 ```powershell
-cd e:\sxhwork\my-utils\.cursor\office
+cd .agents\office
 ```
 
 ### 1. Python 依赖
@@ -58,7 +58,7 @@ python -c "import openpyxl, pandas, lxml, defusedxml, markitdown, PIL; print('py
 之后跑 skill 内 Python 脚本时，优先用本目录的 `.venv`：
 
 ```powershell
-.\.venv\Scripts\python.exe ..\skills\xlsx\scripts\recalc.py ...
+.\.venv\Scripts\python.exe ..\skills\xlsx\recalc.py ...
 ```
 
 ### 2. Node 依赖
@@ -94,7 +94,6 @@ $env:NODE_PATH = (Resolve-Path .\node_modules).Path
 ### 4. 一键自检
 
 ```powershell
-cd e:\sxhwork\my-utils\.cursor\office
 .\check-deps.ps1
 ```
 
@@ -107,9 +106,10 @@ cd e:\sxhwork\my-utils\.cursor\office
 | `requirements.txt` | Python 包 |
 | `package.json` | Node 包（含 docx / pptxgenjs / playwright 等） |
 | `check-deps.ps1` | 依赖自检脚本 |
-| `html2pptx-local.cjs` | HTML → PPTX 本地辅助脚本 |
 | `.venv/` | Python 虚拟环境（gitignore，需本地创建） |
 | `node_modules/` | Node 依赖（gitignore，需本地安装） |
+
+HTML → PPTX 的辅助脚本在 `.agents/skills/pptx/scripts/html2pptx.js`，本目录不再留副本。
 
 ## 能力对照（装齐后）
 

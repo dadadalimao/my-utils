@@ -37,9 +37,9 @@ python -m pip install opencv-python-headless numpy --user
 ## 执行
 
 ```powershell
-python .cursor/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "输入.mp4"
-python .cursor/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "输入.mp4" -o "输入_clean.mp4"
-python .cursor/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "输入.mp4" --debug-dir debug_wm
+python .agents/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "输入.mp4"
+python .agents/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "输入.mp4" -o "输入_clean.mp4"
+python .agents/skills/clean-doubao-watermark/scripts/clean_doubao_watermark.py "输入.mp4" --debug-dir debug_wm
 ```
 
 仓库快捷入口：`tools/cli/clean_doubao_watermark.py`  

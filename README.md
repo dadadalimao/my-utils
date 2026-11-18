@@ -13,7 +13,8 @@
 | JavaTool | [`devtools/javaTool/`](devtools/javaTool/) | Java 项目启停 GUI |
 | Mini | [`apps/mini/`](apps/mini/) | AI 写小说（uni-app + Nest），故事资料在 `apps/mini/story/` |
 | 文档 | [`docs/`](docs/) | 提示词等备忘 |
-| Cursor | [`.cursor/`](.cursor/) | Agent skills（保持独立） |
+| Agent skills | [`.agents/skills/`](.agents/skills/) | 跨工具共用的 skills（Cursor / Codex / Claude 等） |
+| Office 依赖 | [`.agents/office/`](.agents/office/) | docx/pptx/xlsx/pdf skill 的依赖清单与 `check-deps.ps1` 自检 |
 
 根目录 [`index.html`](index.html) 为分区总入口；[`start.ps1`](start.ps1) / [`start.bat`](start.bat) 为 wt 启动菜单（可选启动 node / mini / web / javaTool）。
 
