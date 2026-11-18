@@ -46,11 +46,11 @@
       </view>
       <view class="icon-btn" @click="optionsOpen = true">
         <view class="gear" />
-        <text v-if="chat.reviseMode" class="badge">修</text>
+        <text v-if="chat.mode === 'chapter' && chat.composerAction === 'revise'" class="badge">修</text>
       </view>
     </view>
 
-    <view v-if="chat.reviseMode" class="draft-panel">
+    <view v-if="chat.mode === 'chapter' && chat.composerAction === 'revise'" class="draft-panel">
       <view class="draft-head" @click="draftExpanded = !draftExpanded">
         <view class="draft-head-left">
           <text class="revise-tag">修订</text>
@@ -60,7 +60,7 @@
       </view>
       <scroll-view v-if="draftExpanded" scroll-y class="draft-body">
         <view v-if="chat.draftInfo.source === 'none'" class="muted">
-          暂无底稿。先生成或保存正文后，即可在此对照修订。
+          暂无 AI 正文。先生成一版后，才能按提示修订。
         </view>
         <view v-else class="draft-text" user-select selectable>{{ chat.draftInfo.text }}</view>
       </scroll-view>
@@ -115,6 +115,22 @@
     </scroll-view>
 
     <view class="composer">
+      <view v-if="chat.mode === 'chapter'" class="action-modes">
+        <view
+          class="action-mode"
+          :class="{ active: chat.composerAction === 'create' }"
+          @click="onPickComposerAction('create')"
+        >
+          创作
+        </view>
+        <view
+          class="action-mode"
+          :class="{ active: chat.composerAction === 'revise', disabled: !chat.canRevise }"
+          @click="onPickComposerAction('revise')"
+        >
+          修订
+        </view>
+      </view>
       <textarea
         v-model="chat.composerInput"
         class="input ai-prompt-input"
@@ -126,8 +142,12 @@
       />
       <view class="input-meta">{{ chat.composerInput.length }}/20000</view>
       <view class="actions">
-        <view class="btn-primary" :class="{ disabled: chat.loading }" @click="onSend">
-          {{ chat.loading ? '生成中…' : chat.reviseMode ? '修订发送' : '发送' }}
+        <view
+          class="btn-primary"
+          :class="{ disabled: sendDisabled }"
+          @click="onSend"
+        >
+          {{ sendButtonLabel }}
         </view>
         <PromptPolishBtn
           v-model="chat.composerInput"
@@ -140,7 +160,7 @@
           :class="{ disabled: chat.loading || !chat.canVulgarize }"
           @click="onVulgarize"
         >
-          一键粗俗
+          粗俗扩写
         </view>
         <view class="btn-ghost" @click="moreOpen = true">更多</view>
       </view>
@@ -216,14 +236,13 @@
           <view class="picker">{{ currentTplName }}</view>
         </picker>
 
-        <view class="label row-between">
-          <text>修订模式</text>
-          <switch :checked="chat.reviseMode" @change="onReviseChange" :color="themeControlColor" />
-        </view>
+        <view class="label">发送方式</view>
         <view class="hint muted">
-          开：按底稿局部修改。无底稿（新章）时自动按新创作发送。底稿优先「最近生成」，其次「当前章正文」。
+          章节模式在输入框上方选择。创作：按提示写最新章，留空则根据过往章节自行设计。修订：仅在 AI 已生成正文后可用，按你的提示改这一稿，不会改去创作。
         </view>
-        <view class="hint muted">当前底稿：{{ draftHint }}</view>
+        <view v-if="chat.mode === 'chapter'" class="hint muted">
+          当前：{{ chat.composerAction === 'revise' ? '修订' : '创作' }} · {{ draftHint }}
+        </view>
 
         <view class="label row-between">
           <text>关键词注入设定卡</text>
@@ -457,7 +476,7 @@ const saveDone = reactive({
 })
 
 const modes: { id: ChatMode; label: string; desc: string }[] = [
-  { id: 'chapter', label: '章节', desc: '按模板写正文 / 修订正文' },
+  { id: 'chapter', label: '章节', desc: '创作最新章，或按提示修订 AI 正文' },
   { id: 'outline', label: '大纲', desc: '生成或细化章节大纲' },
 ]
 
@@ -493,6 +512,16 @@ const logAnchor = computed(() =>
 )
 
 watch(
+  () => chat.canRevise,
+  (ok, prev) => {
+    // 只在底稿被清掉时退回创作，避免进页时会话还没还原就把修订打掉
+    if (prev && !ok && chat.composerAction === 'revise') {
+      chat.setComposerAction('create')
+    }
+  },
+)
+
+watch(
   () => chat.outputStarted,
   (started) => {
     // 工具轮非流式整包返回时，loading 可能在 watch 微任务前已结束，勿依赖 loading
@@ -503,21 +532,32 @@ watch(
 
 const draftHint = computed(() => {
   const d = chat.draftInfo
-  if (d.source === 'lastReply') return `最近生成（${d.text.length} 字）`
-  if (d.source === 'chapter') return `当前章正文（${d.text.length} 字）`
-  return '无（新创作）'
+  if (d.source === 'lastReply') return `AI 正文（${d.text.length} 字）`
+  return '无 AI 正文'
 })
 
 const composerPlaceholder = computed(() => {
-  if (!chat.reviseMode) return '描述你的需求…'
-  if (chat.draftInfo.source === 'none') return '暂无底稿，将按新创作发送。也可先生成/保存正文…'
-  return '说明要改哪里，例如：第三段再慢一点、删掉旁白…'
+  if (chat.mode === 'outline') return '描述你的大纲需求…'
+  if (chat.composerAction === 'revise') return '说明要改哪里，例如：第三段再慢一点、删掉旁白…'
+  return '写本章要求；留空则按过往章节自行设计最新一章'
+})
+
+const sendButtonLabel = computed(() => {
+  if (chat.loading) return '生成中…'
+  if (chat.mode === 'outline') return '发送'
+  return chat.composerAction === 'revise' ? '修订发送' : '创作发送'
+})
+
+const sendDisabled = computed(() => {
+  if (chat.loading) return true
+  if (chat.mode === 'outline') return !chat.composerInput.trim()
+  if (chat.composerAction === 'revise') return !chat.canRevise || !chat.composerInput.trim()
+  return false
 })
 
 const composerPolishScene = computed<PromptPolishScene>(() => {
-  // 与发送一致：修订开着但没底稿时按新创作，避免新章空正文被润成「改原稿」
   if (chat.mode === 'outline') return 'outline'
-  if (chat.reviseMode && chat.draftInfo.source !== 'none') return 'revise'
+  if (chat.composerAction === 'revise' && chat.canRevise) return 'revise'
   return 'chapter'
 })
 
@@ -644,11 +684,6 @@ function onInjectChange(e: { detail: { value: boolean } }) {
   chat.injectOutline = e.detail.value
 }
 
-function onReviseChange(e: { detail: { value: boolean } }) {
-  chat.setReviseMode(e.detail.value)
-  if (e.detail.value) draftExpanded.value = true
-}
-
 function onInjectLoreChange(e: { detail: { value: boolean } }) {
   chat.setInjectLore(e.detail.value)
 }
@@ -745,8 +780,16 @@ function onEditResend(messageId: string) {
 }
 
 async function onSend() {
+  if (chat.loading || sendDisabled.value) {
+    if (!chat.loading && chat.mode === 'chapter' && chat.composerAction === 'revise') {
+      uni.showToast({
+        title: chat.canRevise ? '请填写修订要求' : '需先由 AI 生成正文',
+        icon: 'none',
+      })
+    }
+    return
+  }
   const text = chat.composerInput.trim()
-  if (!text || chat.loading) return
   logOpen.value = true
   try {
     await chat.send(text)
@@ -784,6 +827,20 @@ function onAdviceEditResend(messageId: string) {
   } catch (e) {
     uni.showToast({ title: (e as Error).message, icon: 'none' })
   }
+}
+
+function onPickComposerAction(action: 'create' | 'revise') {
+  if (action === 'revise' && !chat.canRevise) {
+    uni.showToast({ title: '需先由 AI 生成正文', icon: 'none' })
+    return
+  }
+  try {
+    chat.setComposerAction(action)
+  } catch (e) {
+    uni.showToast({ title: (e as Error).message, icon: 'none' })
+    return
+  }
+  if (action === 'revise') draftExpanded.value = true
 }
 
 function onPickMode(id: ChatMode) {
@@ -837,7 +894,7 @@ async function onVulgarize() {
   try {
     await chat.vulgarizeDraft()
   } catch (e) {
-    const msg = (e as Error).message || '改写失败'
+    const msg = (e as Error).message || '扩写失败'
     if (msg !== '已停止') {
       uni.showToast({ title: msg, icon: 'none' })
     }
@@ -1310,6 +1367,25 @@ function onMoreClear() {
 .msg.assistant {
   background: var(--color-chat-assistant);
   border-color: var(--color-border);
+}
+.action-modes {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+.action-mode {
+  flex: 1;
+  text-align: center;
+  padding: 12rpx 0;
+  border-radius: 999rpx;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  font-size: 26rpx;
+}
+.action-mode.active {
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-weight: 600;
 }
 .composer .input {
   width: 100%;

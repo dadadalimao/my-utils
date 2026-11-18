@@ -37,6 +37,7 @@ import {
 } from '@/ai/tools'
 import { buildOtokonokoInjectContent } from '@/constants/otokonoko'
 import { buildR18LexiconInject, isR18Template } from '@/constants/r18Lexicon'
+import { CREATE_SYSTEM_PROMPT, EMPTY_CREATE_USER_PROMPT } from '@/constants/create'
 import { REVISE_SYSTEM_PROMPT, wrapReviseUserPrompt } from '@/constants/revise'
 import { builtinByMode, BUILTIN_TEMPLATES } from '@/constants/templates'
 import { apiFetchTemplates } from '@/api/http'
@@ -85,6 +86,15 @@ function resolveInitialSelectedId(list: PromptTemplate[]): string {
 
 export type DraftSource = 'lastReply' | 'chapter' | 'none'
 
+/** 章节发送方式：创作在前，修订仅用于改 AI 已生成正文 */
+export type ComposerAction = 'create' | 'revise'
+
+function readComposerAction(): ComposerAction {
+  const saved = storageGet<string>('composerAction', '')
+  if (saved === 'create' || saved === 'revise') return saved
+  return 'create'
+}
+
 export interface ActivityLogItem {
   at: string
   text: string
@@ -120,7 +130,8 @@ export const useChatStore = defineStore('chat', () => {
     templates.value.find((t) => t.mode === 'advice')?.id || builtinByMode('advice').id,
   )
   const lastReply = ref('')
-  const reviseMode = ref(storageGet<boolean>('reviseMode', false))
+  /** 章节模式的发送方式。创作可留空自行设计；修订必须已有 AI 正文和用户提示 */
+  const composerAction = ref<ComposerAction>(readComposerAction())
   const boundNovelId = ref<string | null>(null)
   const boundChapterId = ref<string | null>(null)
   /** 输入框进 store，页面重挂也能还在 */
@@ -182,17 +193,18 @@ export const useChatStore = defineStore('chat', () => {
     abortHandle = null
   }
 
+  /**
+   * 修订底稿只认 AI 刚生成的正文，不用已保存章节（可能是手写或旧稿）。
+   */
   const draftInfo = computed(() => {
-    const novel = useNovelStore()
     if (lastReply.value.trim()) {
       return { source: 'lastReply' as DraftSource, text: lastReply.value }
     }
-    const content = novel.currentChapter?.content?.trim() || ''
-    if (content) {
-      return { source: 'chapter' as DraftSource, text: content }
-    }
     return { source: 'none' as DraftSource, text: '' }
   })
+
+  /** 有 AI 生成正文时才允许修订 */
+  const canRevise = computed(() => draftInfo.value.source === 'lastReply')
 
   /**
    * 一键粗俗用的正文：章节模式优先最近生成，否则当前章已存正文。
@@ -208,9 +220,15 @@ export const useChatStore = defineStore('chat', () => {
 
   const canVulgarize = computed(() => !!resolveVulgarizeText())
 
-  function setReviseMode(on: boolean) {
-    reviseMode.value = on
-    storageSet('reviseMode', on)
+  /**
+   * 切换章节发送方式。修订在没有 AI 正文时会被拒绝。
+   */
+  function setComposerAction(action: ComposerAction) {
+    if (action === 'revise' && !lastReply.value.trim()) {
+      throw new Error('需先由 AI 生成正文后再修订')
+    }
+    composerAction.value = action
+    storageSet('composerAction', action)
   }
 
   function setInjectLore(on: boolean) {
@@ -452,12 +470,13 @@ export const useChatStore = defineStore('chat', () => {
       throw new Error('没有可用底稿')
     }
     lastReply.value = msg.content
-    setReviseMode(true)
+    composerAction.value = 'revise'
+    storageSet('composerAction', 'revise')
     persistSessionNow()
   }
 
   /**
-   * 把当前正文改写成更直白的口语脏词，结果写入对话并作为最近生成。
+   * 扩写一笔带过的情色场面，并改成粗俗用词。结果写入对话并作为最近生成。
    */
   async function vulgarizeDraft() {
     if (loading.value) throw new Error('生成中，请稍候')
@@ -479,14 +498,14 @@ export const useChatStore = defineStore('chat', () => {
     abortHandle = null
     activityLog.value = []
     outputStarted.value = false
-    pushActivity('一键粗俗：改写正文用词…')
+    pushActivity('一键粗俗：扩写情色细节并改用词…')
 
     const userId = createId('m_')
     const assistantId = createId('m_')
     messages.value.push({
       id: userId,
       role: 'user',
-      content: '✎ 一键粗俗',
+      content: '✎ 一键粗俗扩写',
       createdAt: new Date().toISOString(),
     })
     messages.value.push({
@@ -497,7 +516,7 @@ export const useChatStore = defineStore('chat', () => {
     })
 
     loading.value = true
-    toolStatus.value = '粗俗改写中…'
+    toolStatus.value = '粗俗扩写中…'
     try {
       const next = await vulgarizeChapterContent({
         text: source,
@@ -512,11 +531,11 @@ export const useChatStore = defineStore('chat', () => {
       if (target) target.content = next
       lastReply.value = next
       outputStarted.value = true
-      pushActivity('粗俗改写完成')
+      pushActivity('粗俗扩写完成')
     } catch (e) {
       const msg = (e as Error).message || ''
       if (aborted || msg === '已停止') {
-        pushActivity('已停止改写')
+        pushActivity('已停止扩写')
         const target = messages.value.find((m) => m.id === assistantId)
         if (target && !target.content.trim()) {
           messages.value = messages.value.filter((m) => m.id !== assistantId && m.id !== userId)
@@ -558,11 +577,16 @@ export const useChatStore = defineStore('chat', () => {
     const chatMode: ChatMode = isAdvice ? 'advice' : mode.value
 
     const draft = draftInfo.value
-    const useRevise = !isAdvice && reviseMode.value && draft.source !== 'none'
+    const useRevise =
+      !isAdvice && mode.value === 'chapter' && composerAction.value === 'revise'
+    const useCreate = !isAdvice && mode.value === 'chapter' && !useRevise
 
-    if (!isAdvice && reviseMode.value && draft.source === 'none') {
-      uni.showToast({ title: '无底稿，已按新创作发送', icon: 'none' })
+    if (useRevise) {
+      if (!lastReply.value.trim()) throw new Error('请先让 AI 生成正文后再修订')
+      if (!userText.trim()) throw new Error('请填写修订要求')
     }
+
+    const createUserText = useCreate && !userText.trim() ? EMPTY_CREATE_USER_PROMPT : userText
 
     const gate = checkWritingGate({
       novel: novel.currentNovel,
@@ -624,6 +648,14 @@ export const useChatStore = defineStore('chat', () => {
       pushActivity(
         `模式：${{ chapter: '章节', outline: '大纲', advice: '建议' }[mode.value]} · 模板「${tpl.name}」`,
       )
+      if (useCreate) {
+        systemParts.push({ role: 'system', content: CREATE_SYSTEM_PROMPT })
+        pushActivity(
+          userText.trim()
+            ? '创作：按用户要求写最新章'
+            : '创作：未写要求，按过往章节自行设计',
+        )
+      }
     }
 
     if (isAdvice) {
@@ -706,7 +738,7 @@ export const useChatStore = defineStore('chat', () => {
     const loreEnabled =
       injectLore.value && settings.settings.injectLoreByKeyword !== false
     if (loreEnabled) {
-      const lore = buildLoreInjectMessage(novelId, userText, {
+      const lore = buildLoreInjectMessage(novelId, createUserText, {
         asOfOrder: writingTarget.order,
       })
       if (lore) {
@@ -720,7 +752,7 @@ export const useChatStore = defineStore('chat', () => {
     const libraryEnabled =
       injectLibrary.value && settings.settings.injectLibraryByKeyword !== false
     if (libraryEnabled) {
-      const lib = buildLibraryInjectMessage(novelId, userText)
+      const lib = buildLibraryInjectMessage(novelId, createUserText)
       if (lib) {
         systemParts.push(lib)
         pushActivity('已按关键词注入资料库')
@@ -742,30 +774,36 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     if (useRevise) {
-      const label = draft.source === 'lastReply' ? '最近生成' : '当前章正文'
       systemParts.push({
         role: 'system',
-        content: `【底稿来源：${label}】\n【说明】以下整段即为写作目标章「${writingTarget.label}」的待修订正文，请只改这一篇，勿换成上一章。\n\n${draft.text}`,
+        content: `【底稿来源：AI 生成正文】\n【说明】以下整段即为写作目标章「${writingTarget.label}」的待修订正文。只按用户的修改要求改这一篇，勿换成上一章。\n\n${draft.text}`,
       })
-      pushActivity(`已附带底稿（${label}）→ ${writingTarget.label}`)
+      pushActivity(`已附带 AI 正文底稿 → ${writingTarget.label}`)
     }
 
-    const displayUser = useRevise ? wrapReviseUserPrompt(userText) : userText
+    const displayUser = useRevise ? wrapReviseUserPrompt(userText) : createUserText
     const thread = isAdvice ? adviceMessages : messages
+    const bubbleUser = useRevise
+      ? `✎ 修订：${userText}`
+      : useCreate && !userText.trim()
+        ? `✎ 创作：${EMPTY_CREATE_USER_PROMPT}`
+        : userText
 
     thread.value.push({
       id: createId('m_'),
       role: 'user',
-      content: useRevise ? `✎ 修订：${userText}` : userText,
+      content: bubbleUser,
       createdAt: new Date().toISOString(),
     })
 
     const history: ChatCompletionMessage[] = useRevise
       ? [{ role: 'user', content: displayUser }]
-      : thread.value.map((m) => ({
-          role: m.role as 'user' | 'assistant' | 'system',
-          content: m.content,
-        }))
+      : useCreate && !userText.trim()
+        ? [{ role: 'user', content: EMPTY_CREATE_USER_PROMPT }]
+        : thread.value.map((m) => ({
+            role: m.role as 'user' | 'assistant' | 'system',
+            content: m.content,
+          }))
 
     const assistantId = createId('m_')
     thread.value.push({
@@ -1134,14 +1172,15 @@ export const useChatStore = defineStore('chat', () => {
     selectedTemplateId,
     selectedAdviceTemplateId,
     lastReply,
-    reviseMode,
+    composerAction,
     boundChapterId,
     composerInput,
     adviceComposerInput,
     draftInfo,
+    canRevise,
     canVulgarize,
     flushSession: persistSessionNow,
-    setReviseMode,
+    setComposerAction,
     setInjectLore,
     setInjectLibrary,
     setInjectOtokonoko,
